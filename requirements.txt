@@ -2,3 +2,4 @@ torch
 gluonts
 pytorch-lightning
 datasets
+xformers
