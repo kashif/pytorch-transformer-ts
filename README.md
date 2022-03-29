@@ -1,6 +1,10 @@
 # Pytorch Transformer based Time Series 
 
-Collection of Transformer based PyTorch Time Series models in the `gluonts` API.
+Collection of Transformer based PyTorch Time Series models in the `gluonts` API. 
+
+## Paper
+
+See the following overleaf [link](https://www.overleaf.com/1713726433hdgwcvyjtpkm)
 
 ## Prerequisite
 
