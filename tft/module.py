@@ -219,7 +219,7 @@ class TemporalFusionDecoder(nn.Module):
         return mask
 
     def forward(
-        self, x: torch.Tensor, static: torch.Tensor, mask: torch.Tensor
+        self, x: torch.Tensor, static: torch.Tensor, mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         static = static.repeat((1, self.context_length + self.prediction_length, 1))
 
