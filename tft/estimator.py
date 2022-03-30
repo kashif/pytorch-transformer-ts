@@ -55,6 +55,7 @@ class TFTEstimator(PyTorchLightningEstimator):
         freq: str,
         prediction_length: int,
         context_length: Optional[int] = None,
+        input_size: int = 1,
         dropout: float = 0.1,
         embed_dim: int = 32,
         variable_dim: Optional[int] = None,
@@ -91,6 +92,7 @@ class TFTEstimator(PyTorchLightningEstimator):
         self.loss = loss
 
         # TFT
+        self.input_size = input_size
         self.embed_dim = embed_dim
         self.variable_dim = variable_dim or embed_dim
         self.num_heads = num_heads
