@@ -90,7 +90,7 @@ class TFTEstimator(PyTorchLightningEstimator):
         self.distr_output = distr_output
         self.loss = loss
 
-        # MultiheadAttention
+        # TFT
         self.embed_dim = embed_dim
         self.variable_dim = variable_dim or embed_dim
         self.num_heads = num_heads
