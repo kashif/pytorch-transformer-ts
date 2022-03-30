@@ -232,9 +232,8 @@ class TemporalFusionDecoder(nn.Module):
         # key_padding_mask = torch.cat((mask, mask_pad), dim=1).bool()
 
         query_key_value = x
-
         attn_output, _ = self.attention(
-            query=query_key_value[-self.prediction_length :, ...],
+            query=query_key_value[:, -self.prediction_length :, ...],
             key=query_key_value,
             value=query_key_value,
             # key_padding_mask=key_padding_mask,
