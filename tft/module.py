@@ -13,8 +13,8 @@ class FeatureEmbedder(BaseFeatureEmbedder):
     def forward(self, features: torch.Tensor) -> List[torch.Tensor]:
         concat_features = super(FeatureEmbedder, self).forward(features=features)
 
-        if self.__num_features > 1:
-            features = torch.chunk(concat_features, self.__num_features, dim=-1)
+        if self._num_features > 1:
+            features = torch.chunk(concat_features, self._num_features, dim=-1)
         else:
             features = [concat_features]
 
