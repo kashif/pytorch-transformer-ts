@@ -56,8 +56,8 @@ class TFTEstimator(PyTorchLightningEstimator):
         prediction_length: int,
         context_length: Optional[int] = None,
         dropout: float = 0.1,
-        activation: str = "gelu",
         embed_dim: int = 32,
+        variable_dim: Optional[int] = None,
         num_heads: int = 4,
         num_feat_dynamic_real: int = 0,
         num_feat_static_cat: int = 0,
@@ -92,8 +92,8 @@ class TFTEstimator(PyTorchLightningEstimator):
 
         # MultiheadAttention
         self.embed_dim = embed_dim
+        self.variable_dim = variable_dim or embed_dim
         self.num_heads = num_heads
-        self.activation = activation
         self.dropout = dropout
 
         self.num_feat_dynamic_real = num_feat_dynamic_real
@@ -287,9 +287,10 @@ class TFTEstimator(PyTorchLightningEstimator):
             cardinality=self.cardinality,
             embedding_dimension=self.embedding_dimension,
             # transformer arguments
-            nhead=self.nhead,
+            num_heads=self.num_heads,
             dropout=self.dropout,
-            dim_feedforward=self.dim_feedforward,
+            embed_dim=self.embed_dim,
+            variable_dim=self.variable_dim,
             # univariate input
             input_size=self.input_size,
             distr_output=self.distr_output,

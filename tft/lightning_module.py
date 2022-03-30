@@ -59,7 +59,7 @@ class TFTLightningModule(pl.LightningModule):
         future_target = batch["future_target"]
         future_observed_values = batch["future_observed_values"]
 
-        tft_inputs, scale, _ = self.model.create_network_inputs(
+        tft_target, time_feat, scale, static_feat = self.model.create_network_inputs(
             feat_static_cat=feat_static_cat,
             feat_static_real=feat_static_real,
             past_time_feat=past_time_feat,
@@ -68,7 +68,9 @@ class TFTLightningModule(pl.LightningModule):
             future_time_feat=future_time_feat,
             future_target=future_target,
         )
-        params = self.model.output_params(tft_inputs)
+        params = self.model.output_params(
+            tft_target, time_feat=time_feat, static_feat=static_feat
+        )
         distr = self.model.output_distribution(params, scale)
 
         loss_values = self.loss(distr, future_target)

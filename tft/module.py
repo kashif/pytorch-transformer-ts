@@ -165,7 +165,7 @@ class TemporalFusionDecoder(nn.Module):
         prediction_length: int,
         d_hidden: int,
         d_var: int,
-        n_head: int,
+        num_heads: int,
         dropout: float = 0.0,
     ):
         super().__init__()
@@ -180,7 +180,7 @@ class TemporalFusionDecoder(nn.Module):
 
         self.attention = nn.MultiheadAttention(
             embed_dim=d_hidden,
-            num_heads=n_head,
+            num_heads=num_heads,
             dropout=dropout,
             batch_first=True,
         )
@@ -263,9 +263,10 @@ class TFTModel(nn.Module):
         num_feat_static_cat: int,
         cardinality: List[int],
         # TFT inputs
-        nhead: int,
-        hidden_dim: int,
+        num_heads: int,
+        embed_dim: int,
         variable_dim: int,
+        dropout: float,
         # univariate input
         input_size: int = 1,
         embedding_dimension: Optional[List[int]] = None,
@@ -349,6 +350,18 @@ class TFTModel(nn.Module):
             dropout=dropout,
         )
 
+        self.state_h = GatedResidualNetwork(
+            d_hidden=variable_dim,
+            d_output=embed_dim,
+            dropout=dropout,
+        )
+
+        self.state_c = GatedResidualNetwork(
+            d_hidden=variable_dim,
+            d_output=embed_dim,
+            dropout=dropout,
+        )
+
         # Encoder and Decoder network
         self.temporal_encoder = TemporalFusionEncoder(
             d_input=variable_dim,
@@ -359,7 +372,7 @@ class TFTModel(nn.Module):
             prediction_length=self.prediction_length,
             d_hidden=embed_dim,
             d_var=variable_dim,
-            n_head=nhead,
+            num_heads=num_heads,
             dropout=dropout,
         )
 
@@ -494,16 +507,16 @@ class TFTModel(nn.Module):
             [future_target_proj, future_time_feat_proj], static_selection
         )
 
-        encoding = self.temporal_encoder(past_selection, future_selection)
+        c_h = self.state_h(static_var)
+        c_c = self.state_c(static_var)
 
-        decoding = self.temporal_decoder(encoding)
-
-        return (
-            past_target_proj,
-            future_target_proj,
-            past_time_feat_proj,
-            static_feat_proj,
+        encoding = self.temporal_encoder(
+            past_selection, future_selection, [c_h.unsqueeze(0), c_c.unsqueeze(0)]
         )
+
+        prams = self.temporal_decoder(encoding, static_enrichment)
+
+        return prams
 
     @torch.jit.ignore
     def output_distribution(
