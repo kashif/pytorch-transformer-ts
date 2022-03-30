@@ -508,9 +508,9 @@ class TFTModel(nn.Module):
             past_selection, future_selection, [c_h.unsqueeze(0), c_c.unsqueeze(0)]
         )
 
-        prams = self.temporal_decoder(encoding, static_enrichment)
+        dec_output = self.temporal_decoder(encoding, static_enrichment)
 
-        return prams
+        return self.param_proj(dec_output)
 
     @torch.jit.ignore
     def output_distribution(
