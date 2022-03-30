@@ -225,10 +225,11 @@ class TemporalFusionDecoder(nn.Module):
     def forward(
         self, x: torch.Tensor, static: torch.Tensor, mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
-        static = static.repeat((1, self.context_length + self.prediction_length, 1))
+        expanded_static = static.expand_as(x)
+        # static.repeat((1, self.context_length + self.prediction_length, 1))
 
         skip = x[:, self.context_length :, ...]
-        x = self.enrich(x, static)
+        x = self.enrich(x, expanded_static)
 
         # does not work on GPU :-(
         # mask_pad = torch.ones_like(mask)[:, 0:1, ...]
