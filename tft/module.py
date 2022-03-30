@@ -242,7 +242,7 @@ class TemporalFusionDecoder(nn.Module):
 
         query_key_value = x
         attn_output, _ = self.attention(
-            query=query_key_value[:, -self.prediction_length :, ...],
+            query=query_key_value[:, self.context_length :, ...],
             key=query_key_value,
             value=query_key_value,
             # key_padding_mask=key_padding_mask,
