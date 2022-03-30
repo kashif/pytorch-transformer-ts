@@ -141,20 +141,24 @@ class TemporalFusionEncoder(nn.Module):
     def forward(
         self,
         ctx_input: torch.Tensor,
-        tgt_input: torch.Tensor,
-        states: List[torch.Tensor],
+        tgt_input: Optional[torch.Tensor] = None,
+        states: Optional[List[torch.Tensor]] = None,
     ):
         ctx_encodings, states = self.encoder_lstm(ctx_input, states)
 
-        tgt_encodings, _ = self.decoder_lstm(tgt_input, states)
+        if tgt_input is not None:
+            tgt_encodings, _ = self.decoder_lstm(tgt_input, states)
+            encodings = torch.cat((ctx_encodings, tgt_encodings), dim=1)
+            skip = torch.cat((ctx_input, tgt_input), dim=1)
+        else:
+            encodings = ctx_encodings
+            skip = ctx_input
 
-        encodings = torch.cat((ctx_encodings, tgt_encodings), dim=1)
-        skip = torch.cat((ctx_input, tgt_input), dim=1)
         if self.add_skip:
             skip = self.skip_proj(skip)
         encodings = self.gate(encodings)
         encodings = self.lnorm(skip + encodings)
-        return encodings
+        return encodings, states
 
 
 class TemporalFusionDecoder(nn.Module):
@@ -433,7 +437,7 @@ class TFTModel(nn.Module):
                 ),
                 dim=1,
             )
-            if future_time_feat is not None
+            if future_target is not None
             else past_time_feat[:, self._past_length - self.context_length :, ...]
         )
 
@@ -449,9 +453,9 @@ class TFTModel(nn.Module):
             else past_target / scale
         )
         subsequences_length = (
-            self.context_length
-            if future_time_feat is None or future_target is None
-            else self.context_length + self.prediction_length
+            self.context_length + self.prediction_length
+            if future_target is not None
+            else self.context_length
         )
 
         lagged_target = self.get_lagged_subsequences(
@@ -503,12 +507,11 @@ class TFTModel(nn.Module):
 
         c_h = self.state_h(static_var)
         c_c = self.state_c(static_var)
+        states = [c_h.unsqueeze(0), c_c.unsqueeze(0)]
 
-        encoding = self.temporal_encoder(
-            past_selection, future_selection, [c_h.unsqueeze(0), c_c.unsqueeze(0)]
-        )
+        enc_out, _ = self.temporal_encoder(past_selection, future_selection, states)
 
-        dec_output = self.temporal_decoder(encoding, static_enrichment)
+        dec_output = self.temporal_decoder(enc_out, static_enrichment)
 
         return self.param_proj(dec_output)
 
@@ -547,8 +550,37 @@ class TFTModel(nn.Module):
             past_time_feat=past_time_feat,
             past_target=past_target,
             past_observed_values=past_observed_values,
-            future_time_feat=future_time_feat,
         )
 
-        target_proj = self.target_proj(target)
-        time_feat_proj = self.dynamic_proj(time_feat)
+        past_target_proj = self.target_proj(target)
+        past_time_feat_proj = self.dynamic_proj(time_feat)
+        future_time_feat_proj = self.dynamic_proj(future_time_feat)
+        static_feat_proj = self.static_feat_proj(static_feat)
+
+        static_var, _ = self.static_selection(embedded_cat + [static_feat_proj])
+        static_selection = self.selection(static_var).unsqueeze(1)
+        static_enrichment = self.enrichment(static_var).unsqueeze(1)
+
+        past_selection, _ = self.past_selection(
+            [past_target_proj, past_time_feat_proj], static_selection
+        )
+
+        c_h = self.state_h(static_var)
+        c_c = self.state_c(static_var)
+        states = [c_h.unsqueeze(0), c_c.unsqueeze(0)]
+
+        enc_out, states = self.temporal_encoder(
+            past_selection, tgt_input=None, states=states
+        )
+
+        for k in range(self.prediction_length):
+            import pdb
+
+            pdb.set_trace()
+
+            # TODO
+            enc_out, states = self.temporal_encoder(
+                past_selection, future_selection, states
+            )
+
+            dec_output = self.temporal_decoder(enc_out, static_enrichment)
