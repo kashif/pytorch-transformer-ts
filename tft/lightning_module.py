@@ -3,7 +3,7 @@ import torch
 from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
 from gluonts.torch.util import weighted_average
 
-from .module import TFTModel
+from module import TFTModel
 
 
 class TFTLightningModule(pl.LightningModule):
