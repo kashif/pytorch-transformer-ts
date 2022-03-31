@@ -276,34 +276,34 @@ class TransformerModel(nn.Module):
         repeated_scale = scale.repeat_interleave(
             repeats=self.num_parallel_samples, dim=0
         )
-        repeated_static_feat = static_feat.repeat_interleave(
-            repeats=self.num_parallel_samples, dim=0
-        ).unsqueeze(dim=1)
+
         repeated_past_target = (
             past_target.repeat_interleave(repeats=self.num_parallel_samples, dim=0)
             / repeated_scale
         )
-        repeated_time_feat = future_time_feat.repeat_interleave(
+
+        expanded_static_feat = static_feat.unsqueeze(1).expand(
+            -1, future_time_feat.shape[1], -1
+        )
+        features = torch.cat((expanded_static_feat, future_time_feat), dim=-1)
+        repeated_features = features.repeat_interleave(
             repeats=self.num_parallel_samples, dim=0
         )
+
         repeated_enc_out = enc_out.repeat_interleave(
             repeats=self.num_parallel_samples, dim=0
         )
 
         future_samples = []
 
+        # greedy decoding
         for k in range(self.prediction_length):
-            next_features = torch.cat(
-                (repeated_static_feat, repeated_time_feat[:, k : k + 1]),
-                dim=-1,
-            )
-
             # self._check_shapes(repeated_past_target, next_sample, next_features)
             # sequence = torch.cat((repeated_past_target, next_sample), dim=1)
 
             lagged_sequence = self.get_lagged_subsequences(
                 sequence=repeated_past_target,
-                subsequences_length=1,
+                subsequences_length=1 + k,
                 shift=1,
             )
 
@@ -312,11 +312,13 @@ class TransformerModel(nn.Module):
                 lags_shape[0], lags_shape[1], -1
             )
 
-            decoder_input = torch.cat((reshaped_lagged_sequence, next_features), dim=-1)
+            decoder_input = torch.cat(
+                (reshaped_lagged_sequence, repeated_features[:, : k + 1]), dim=-1
+            )
 
             output = self.transformer.decoder(decoder_input, repeated_enc_out)
 
-            params = self.param_proj(output)
+            params = self.param_proj(output[:, -1:])
             distr = self.output_distribution(params, scale=repeated_scale)
             next_sample = distr.sample()
 
