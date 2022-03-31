@@ -596,11 +596,12 @@ class TFTModel(nn.Module):
             for s in states
         ]
 
+        # greedy decoding
         future_samples = []
         for k in range(self.prediction_length):
             lagged_sequence = self.get_lagged_subsequences(
                 sequence=repeated_past_target,
-                subsequences_length=1,
+                subsequences_length=1 + k,
                 shift=1,
             )
             lags_shape = lagged_sequence.shape
@@ -609,7 +610,7 @@ class TFTModel(nn.Module):
             )
             reshaped_lagged_sequence_proj = self.target_proj(reshaped_lagged_sequence)
 
-            next_time_feat_proj = repeated_time_feat_proj[:, k : k + 1]
+            next_time_feat_proj = repeated_time_feat_proj[:, : k + 1]
             future_selection, _ = self.future_selection(
                 [reshaped_lagged_sequence_proj, next_time_feat_proj],
                 repeated_static_selection,
@@ -622,7 +623,7 @@ class TFTModel(nn.Module):
                 enc_out, repeated_static_enrichment, causal=False
             )
 
-            params = self.param_proj(dec_output)
+            params = self.param_proj(dec_output[:, -1:])
             distr = self.output_distribution(params, scale=repeated_scale)
 
             next_sample = distr.sample()
