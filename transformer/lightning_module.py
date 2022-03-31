@@ -15,7 +15,7 @@ class TransformerLightningModule(pl.LightningModule):
         weight_decay: float = 1e-8,
     ) -> None:
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=["loss", "model"])
         self.model = model
         self.loss = loss
         self.lr = lr
