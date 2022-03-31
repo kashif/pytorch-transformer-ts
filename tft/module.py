@@ -22,6 +22,7 @@ class FeatureEmbedder(BaseFeatureEmbedder):
 
 
 class GatedResidualNetwork(nn.Module):
+    @validated()
     def __init__(
         self,
         d_hidden: int,
@@ -71,6 +72,7 @@ class GatedResidualNetwork(nn.Module):
 
 
 class VariableSelectionNetwork(nn.Module):
+    @validated()
     def __init__(
         self,
         d_hidden: int,
@@ -112,6 +114,7 @@ class VariableSelectionNetwork(nn.Module):
 
 
 class TemporalFusionEncoder(nn.Module):
+    @validated()
     def __init__(
         self,
         d_input: int,
@@ -162,6 +165,7 @@ class TemporalFusionEncoder(nn.Module):
 
 
 class TemporalFusionDecoder(nn.Module):
+    @validated()
     def __init__(
         self,
         context_length: int,

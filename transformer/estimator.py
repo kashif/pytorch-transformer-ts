@@ -30,8 +30,8 @@ from gluonts.transform import (
 from gluonts.transform.sampler import InstanceSampler
 from torch.utils.data import DataLoader
 
-from .lightning_module import TransformerLightningModule
-from .module import TransformerModel
+from lightning_module import TransformerLightningModule
+from module import TransformerModel
 
 PREDICTION_INPUT_NAMES = [
     "feat_static_cat",
