@@ -583,8 +583,9 @@ class TFTModel(nn.Module):
             repeats=self.num_parallel_samples, dim=0
         )
 
-        repeated_past_target = target.repeat_interleave(
-            repeats=self.num_parallel_samples, dim=0
+        repeated_past_target = (
+            past_target.repeat_interleave(repeats=self.num_parallel_samples, dim=0)
+            / repeated_scale
         )
         repeated_past_selection = past_selection.repeat_interleave(
             repeats=self.num_parallel_samples, dim=0
