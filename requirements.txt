@@ -3,3 +3,4 @@ gluonts
 pytorch-lightning
 datasets
 xformers
+https://github.com/ml-jku/hopfield-layers
