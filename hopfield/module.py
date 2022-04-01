@@ -13,7 +13,7 @@ from hflayers import Hopfield
 from hflayers.transformer import HopfieldDecoderLayer, HopfieldEncoderLayer
 
 
-class HopfieldNetwork(nn.Module):
+class HopfieldModel(nn.Module):
     @validated()
     def __init__(
         self,
