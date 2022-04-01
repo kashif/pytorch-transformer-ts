@@ -60,7 +60,7 @@ class HopfieldEstimator(PyTorchLightningEstimator):
         num_decoder_layers: int,
         dim_feedforward: int,
         input_size: int = 1,
-        activation: str = "gelu",
+        activation: str = "relu",
         dropout: float = 0.1,
         context_length: Optional[int] = None,
         num_feat_dynamic_real: int = 0,
