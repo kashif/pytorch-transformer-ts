@@ -28,10 +28,9 @@ from gluonts.transform import (
     VstackFeatures,
 )
 from gluonts.transform.sampler import InstanceSampler
-from torch.utils.data import DataLoader
-
 from lightning_module import HopfieldLightningModule
 from module import HopfieldModel
+from torch.utils.data import DataLoader
 
 PREDICTION_INPUT_NAMES = [
     "feat_static_cat",
