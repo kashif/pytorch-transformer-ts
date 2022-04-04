@@ -27,7 +27,7 @@ class HopfieldModel(nn.Module):
         num_encoder_layers: int,
         num_decoder_layers: int,
         dim_feedforward: int,
-        activation: str = "gelu",
+        activation: str = "relu",
         dropout: float = 0.1,
         # univariate input
         input_size: int = 1,
