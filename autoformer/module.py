@@ -433,7 +433,6 @@ class AutoformerModel(nn.Module):
         activation: str = "gelu",
         dropout: float = 0.1,
         factor: int = 1,
-        d_ff: int = 32,
         moving_avg: int = 25,
         # univariate input
         input_size: int = 1,
@@ -473,6 +472,12 @@ class AutoformerModel(nn.Module):
 
         self.context_length = context_length
         self.prediction_length = prediction_length
+        self.label_length = context_length // 2
+
+        # Input decomposition
+        self.decomp = series_decomp(kernel_size=moving_avg)
+
+        # output projection
         self.distr_output = distr_output
         self.param_proj = distr_output.get_args_proj(d_model)
 
@@ -491,7 +496,7 @@ class AutoformerModel(nn.Module):
                         n_heads,
                     ),
                     d_model,
-                    d_ff,
+                    dim_feedforward,
                     moving_avg=moving_avg,
                     dropout=dropout,
                     activation=activation,
@@ -526,7 +531,7 @@ class AutoformerModel(nn.Module):
                     ),
                     d_model,
                     d_model,
-                    d_ff,
+                    dim_feedforward,
                     moving_avg=moving_avg,
                     dropout=dropout,
                     activation=activation,
@@ -683,12 +688,36 @@ class AutoformerModel(nn.Module):
         enc_input = transformer_inputs[:, : self.context_length, ...]
         dec_input = transformer_inputs[:, self.context_length :, ...]
 
-        enc_out = self.transformer.encoder(enc_input)
-        dec_output = self.transformer.decoder(
-            dec_input, enc_out, tgt_mask=self.tgt_mask
+        # decomp init
+        mean = (
+            torch.mean(enc_input, dim=1)
+            .unsqueeze(1)
+            .repeat(1, self.prediction_length, 1)
+        )
+        zeros = torch.zeros(
+            [dec_input.shape[0], self.prediction_length, dec_input.shape[2]],
+            device=enc_input.device,
+        )
+        seasonal_init, trend_init = self.decomp(enc_input)
+
+        # decoder input
+        trend_init = torch.cat([trend_init[:, -self.label_length :, :], mean], dim=1)
+        seasonal_init = torch.cat(
+            [seasonal_init[:, -self.label_length :, :], zeros], dim=1
         )
 
-        return self.param_proj(dec_output)
+        # enc
+        enc_out, attns = self.encoder(enc_input, attn_mask=None)
+
+        # dec
+        seasonal_part, trend_part = self.decoder(
+            dec_input, enc_out, x_mask=None, cross_mask=None, trend=trend_init
+        )
+
+        # final
+        dec_out = trend_part + seasonal_part
+
+        return self.param_proj(dec_out[:, -self.prediction_length :, :])
 
     @torch.jit.ignore
     def output_distribution(
