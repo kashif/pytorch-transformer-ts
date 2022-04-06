@@ -1,4 +1,4 @@
-# Pytorch Transformer based Time Series 
+# Pytorch Transformer based Time Series Models
 
 Collection of Transformer based PyTorch Time Series models in the `gluonts` API. 
 
