@@ -57,7 +57,12 @@ class AutoformerLightningModule(pl.LightningModule):
         past_observed_values = batch["past_observed_values"]
         future_observed_values = batch["future_observed_values"]
 
-        autoformer_inputs, scale, _ = self.model.create_network_inputs(
+        (
+            autoformer_inputs,
+            scale,
+            dynamic_features,
+            _,
+        ) = self.model.create_network_inputs(
             feat_static_cat,
             feat_static_real,
             past_time_feat,
@@ -66,7 +71,7 @@ class AutoformerLightningModule(pl.LightningModule):
             future_time_feat,
             future_target,
         )
-        params = self.model.output_params(autoformer_inputs)
+        params = self.model.output_params(autoformer_inputs, dynamic_features)
         distr = self.model.output_distribution(params, scale)
 
         loss_values = self.loss(distr, future_target)
