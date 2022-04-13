@@ -344,7 +344,6 @@ class PyraformerEstimator(PyTorchLightningEstimator):
                 prediction_length=self.prediction_length,
                 context_length=self.context_length,
                 lags_seq=self.lags_seq,
-                embedding_dimension=self.embedding_dimension,
                 num_feat_dynamic_real=self.num_feat_dynamic_real,
                 num_feat_static_cat=self.num_feat_static_cat,
                 num_feat_static_real=self.num_feat_static_real,
