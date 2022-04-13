@@ -5,7 +5,7 @@ from .Modules import ScaledDotProductAttention
 
 
 class MultiHeadAttention(nn.Module):
-    """ Multi-Head Attention module """
+    """Multi-Head Attention module"""
 
     def __init__(self, n_head, d_model, d_k, d_v, dropout=0.1, normalize_before=True):
         super().__init__()
@@ -25,7 +25,9 @@ class MultiHeadAttention(nn.Module):
         self.fc = nn.Linear(d_v * n_head, d_model)
         nn.init.xavier_uniform_(self.fc.weight)
 
-        self.attention = ScaledDotProductAttention(temperature=d_k ** 0.5, attn_dropout=dropout)
+        self.attention = ScaledDotProductAttention(
+            temperature=d_k**0.5, attn_dropout=dropout
+        )
 
         self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
         self.dropout = nn.Dropout(dropout)
@@ -65,7 +67,7 @@ class MultiHeadAttention(nn.Module):
 
 
 class PositionwiseFeedForward(nn.Module):
-    """ Two-layer position-wise feed-forward neural network. """
+    """Two-layer position-wise feed-forward neural network."""
 
     def __init__(self, d_in, d_hid, dropout=0.1, normalize_before=True):
         super().__init__()
@@ -76,7 +78,7 @@ class PositionwiseFeedForward(nn.Module):
         self.w_2 = nn.Linear(d_hid, d_in)
 
         self.layer_norm = nn.LayerNorm(d_in, eps=1e-6)
-        #self.layer_norm = GraphNorm(d_in)
+        # self.layer_norm = GraphNorm(d_in)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -93,4 +95,3 @@ class PositionwiseFeedForward(nn.Module):
         if not self.normalize_before:
             x = self.layer_norm(x)
         return x
-

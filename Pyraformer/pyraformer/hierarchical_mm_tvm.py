@@ -8,86 +8,112 @@ Modified based on Longformer.
 }
 """
 
-from typing import Union
-from functools import lru_cache
-
-import torch
 import os.path
 import sys
-sys.path.append('pyraformer/tvm/python')
+from functools import lru_cache
+from typing import Union
+
+import torch
+
+sys.path.append("pyraformer/tvm/python")
+
 
 class GraphMM(torch.autograd.Function):
-    '''Class to encapsulate tvm code for compiling a diagonal_mm function, in addition to calling
+    """Class to encapsulate tvm code for compiling a diagonal_mm function, in addition to calling
     this function from PyTorch
-    '''
+    """
 
-    function_dict = {}  # save a list of functions, each has a different set of parameters
+    function_dict = (
+        {}
+    )  # save a list of functions, each has a different set of parameters
 
     @staticmethod
-    def _compile_function(dtype: str, device: str, b0: int = 4, b1: int = 8, b2: int = 8):
-        '''Compiles a tvm function that computes diagonal_mm
+    def _compile_function(
+        dtype: str, device: str, b0: int = 4, b1: int = 8, b2: int = 8
+    ):
+        """Compiles a tvm function that computes diagonal_mm
         args:
         dtype: str in ['float64', 'float32', 'float16']
         device: str in ['cpu' or 'cuda']
         b0, b1, b2: size of tensor tiles. Very important for good performance
-        '''
+        """
         import tvm  # import the full tvm library here for compilation. Don't import at the top of the file in case we don't need to compile
         from tvm.contrib import nvcc
+
         @tvm.register_func
         def tvm_callback_cuda_compile(code):
             """Use nvcc compiler for better perf."""
-            ptx = nvcc.compile_cuda(code, target="ptx", arch='sm_52')  # use old arch for this to work on old GPUs
+            ptx = nvcc.compile_cuda(
+                code, target="ptx", arch="sm_52"
+            )  # use old arch for this to work on old GPUs
             return ptx
 
-        assert dtype in ['float16', 'float32', 'float64']
-        assert device in ['cpu', 'cuda']
-        device = None if device == 'cpu' else device
-        tgt_host="llvm"
+        assert dtype in ["float16", "float32", "float64"]
+        assert device in ["cpu", "cuda"]
+        device = None if device == "cpu" else device
+        tgt_host = "llvm"
 
-        b = tvm.te.var('b')  # batch size
-        n = tvm.te.var('n')  # sequence length
-        h = tvm.te.var('h')  # number of heads
-        m = tvm.te.var('m')  # hidden dimension
-        w = tvm.te.var('w')  # window size
-        padding = tvm.te.var('padding')  # padding
-        transpose_t1 = tvm.te.var('transpose_t1')  # t1 should be transposed
-        t1d3 = tvm.te.var('t1d3')  # last dimension of t1
-        t3d3 = tvm.te.var('t3d3')  # last dimension of t3 (the result tensor)
-        max_attn = tvm.te.var('max_attn')
-        X = tvm.te.placeholder((b, n, h, t1d3), name='X', dtype=dtype)  # first tensor
-        Y = tvm.te.placeholder((b, n, h, m), name='Y', dtype=dtype)  # second tensor
-        k = tvm.te.reduce_axis((0, t1d3), name='k')  # dimension to sum over
-        q_k_mask = tvm.te.placeholder((n, max_attn), name='q_k', dtype='int')  # dilation per head
-        k_q_mask = tvm.te.placeholder((n, max_attn), name='k_q', dtype='int') # 
+        b = tvm.te.var("b")  # batch size
+        n = tvm.te.var("n")  # sequence length
+        h = tvm.te.var("h")  # number of heads
+        m = tvm.te.var("m")  # hidden dimension
+        w = tvm.te.var("w")  # window size
+        padding = tvm.te.var("padding")  # padding
+        transpose_t1 = tvm.te.var("transpose_t1")  # t1 should be transposed
+        t1d3 = tvm.te.var("t1d3")  # last dimension of t1
+        t3d3 = tvm.te.var("t3d3")  # last dimension of t3 (the result tensor)
+        max_attn = tvm.te.var("max_attn")
+        X = tvm.te.placeholder((b, n, h, t1d3), name="X", dtype=dtype)  # first tensor
+        Y = tvm.te.placeholder((b, n, h, m), name="Y", dtype=dtype)  # second tensor
+        k = tvm.te.reduce_axis((0, t1d3), name="k")  # dimension to sum over
+        q_k_mask = tvm.te.placeholder(
+            (n, max_attn), name="q_k", dtype="int"
+        )  # dilation per head
+        k_q_mask = tvm.te.placeholder((n, max_attn), name="k_q", dtype="int")  #
         output_shape = (b, n, h, t3d3)  # shape of the result tensor
 
         algorithm = lambda l, i, q, j: tvm.te.sum(
             tvm.te.if_then_else(
-                t3d3 == m,  # if output dimension == m, then t1 is diagonaled (FIXME: This breaks if t3d3 == m == t1d3)
+                t3d3
+                == m,  # if output dimension == m, then t1 is diagonaled (FIXME: This breaks if t3d3 == m == t1d3)
                 tvm.te.if_then_else(
                     transpose_t1 == 0,
                     tvm.te.if_then_else(
-                        q_k_mask[i, k]>=0,
+                        q_k_mask[i, k] >= 0,
                         X[l, i, q, k] * Y[l, q_k_mask[i, k], q, j],  # t1 is diagonaled
-                        padding
+                        padding,
                     ),
                     tvm.te.if_then_else(
-                        q_k_mask[i, k]>=0,
-                        X[l, q_k_mask[i, k], q, k_q_mask[i, k]] * Y[l, q_k_mask[i, k], q, j],  # # t1 is diagonaled and should be transposed
-                        padding
+                        q_k_mask[i, k] >= 0,
+                        X[l, q_k_mask[i, k], q, k_q_mask[i, k]]
+                        * Y[
+                            l, q_k_mask[i, k], q, j
+                        ],  # # t1 is diagonaled and should be transposed
+                        padding,
                     ),
                 ),
                 tvm.te.if_then_else(
-                    q_k_mask[i, j]>=0,
-                    X[l, i, q, k] * Y[l, q_k_mask[i, j], q, k],  # t1 is not diagonaled, but the output tensor is going to be
-                    padding
-                )
-            ), axis=k)
+                    q_k_mask[i, j] >= 0,
+                    X[l, i, q, k]
+                    * Y[
+                        l, q_k_mask[i, j], q, k
+                    ],  # t1 is not diagonaled, but the output tensor is going to be
+                    padding,
+                ),
+            ),
+            axis=k,
+        )
 
-        Z = tvm.te.compute(output_shape, algorithm, name='Z')  # automatically generate cuda code
+        Z = tvm.te.compute(
+            output_shape, algorithm, name="Z"
+        )  # automatically generate cuda code
         s = tvm.te.create_schedule(Z.op)
 
-        print('Lowering: \n ===================== \n{}'.format(tvm.lower(s, [X, Y, q_k_mask, k_q_mask], simple_mode=True)))
+        print(
+            "Lowering: \n ===================== \n{}".format(
+                tvm.lower(s, [X, Y, q_k_mask, k_q_mask], simple_mode=True)
+            )
+        )
 
         # split long axis into smaller chunks and assing each one to a separate GPU thread/block
         ko, ki = s[Z].split(Z.op.reduce_axis[0], factor=b0)
@@ -107,21 +133,31 @@ class GraphMM(torch.autograd.Function):
         s[ZF].compute_at(s[Z], s[Z].op.reduce_axis[0])
         s[Z].set_store_predicate(tx.var.equal(0))
 
-        print('Lowering with GPU splits: \n ===================== \n{}'.format(tvm.lower(s, [X, Y, q_k_mask, k_q_mask], simple_mode=True)))
+        print(
+            "Lowering with GPU splits: \n ===================== \n{}".format(
+                tvm.lower(s, [X, Y, q_k_mask, k_q_mask], simple_mode=True)
+            )
+        )
 
         # compiling the automatically generated cuda code
-        graph_mm = tvm.build(s, [X, Y, Z, q_k_mask, k_q_mask, max_attn, padding, transpose_t1, t3d3], target=device, target_host=tgt_host, name='graph_mm')
+        graph_mm = tvm.build(
+            s,
+            [X, Y, Z, q_k_mask, k_q_mask, max_attn, padding, transpose_t1, t3d3],
+            target=device,
+            target_host=tgt_host,
+            name="graph_mm",
+        )
         return graph_mm
 
     @staticmethod
     def _get_lib_filename(dtype: str, device: str):
-        base_filename = 'lib/lib_hierarchical_mm'
-        return '{}_{}_{}.so'.format(base_filename, dtype, device)
+        base_filename = "lib/lib_hierarchical_mm"
+        return "{}_{}_{}.so".format(base_filename, dtype, device)
 
     @staticmethod
     def _save_compiled_function(f, dtype: str, device: str):
-        if not os.path.exists('lib/'):
-            os.makedirs('lib/')
+        if not os.path.exists("lib/"):
+            os.makedirs("lib/")
         f.export_library(GraphMM._get_lib_filename(dtype, device))
 
     @staticmethod
@@ -131,43 +167,63 @@ class GraphMM(torch.autograd.Function):
 
         filename = GraphMM._get_lib_filename(dtype, device)
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        potential_dirs = ['../../', '../', './', f'{current_dir}/', f'{current_dir}/../']
-        for potential_dir in  potential_dirs:
-            filepath = '{}{}'.format(potential_dir, filename)
+        potential_dirs = [
+            "../../",
+            "../",
+            "./",
+            f"{current_dir}/",
+            f"{current_dir}/../",
+        ]
+        for potential_dir in potential_dirs:
+            filepath = "{}{}".format(potential_dir, filename)
             if os.path.isfile(filepath):
-                print('Loading tvm binary from: {}'.format(filepath))
+                print("Loading tvm binary from: {}".format(filepath))
                 return load(filepath)
         return None
 
     @staticmethod
     def _get_function(dtype: str, device: str):
-        '''Loads the function from the disk or compile it'''
+        """Loads the function from the disk or compile it"""
         # A list of arguments that define the function
         args = (dtype, device)
         if args not in GraphMM.function_dict:
-            graph_mm = GraphMM._load_compiled_function(dtype, device)  # try to load from disk
+            graph_mm = GraphMM._load_compiled_function(
+                dtype, device
+            )  # try to load from disk
             if not graph_mm:
-                print('Tvm binary not found. Compiling ...')
+                print("Tvm binary not found. Compiling ...")
                 graph_mm = GraphMM._compile_function(dtype, device)  # compile
                 GraphMM._save_compiled_function(graph_mm, dtype, device)  # save to disk
             # convert the tvm function into a pytorch function
             from tvm.contrib import dlpack
-            graph_mm_pytorch = dlpack.to_pytorch_func(graph_mm)  # wrap it as a pytorch function
+
+            graph_mm_pytorch = dlpack.to_pytorch_func(
+                graph_mm
+            )  # wrap it as a pytorch function
             # save the function into a dictionary to be reused
-            GraphMM.function_dict[args] = graph_mm_pytorch  # save it in a dictionary for next time
+            GraphMM.function_dict[
+                args
+            ] = graph_mm_pytorch  # save it in a dictionary for next time
         return GraphMM.function_dict[args]
 
     @staticmethod
-    def _graph_mm(t1: torch.Tensor, t2: torch.Tensor, q_k_mask: torch.Tensor, k_q_mask: torch.Tensor,
-                       is_t1_diagonaled: bool = False, transpose_t1: bool = False, padding: int = 0,
-                       autoregressive: bool = False):
-        '''Calls the compiled function after checking the input format. This function is called in three different modes.
+    def _graph_mm(
+        t1: torch.Tensor,
+        t2: torch.Tensor,
+        q_k_mask: torch.Tensor,
+        k_q_mask: torch.Tensor,
+        is_t1_diagonaled: bool = False,
+        transpose_t1: bool = False,
+        padding: int = 0,
+        autoregressive: bool = False,
+    ):
+        """Calls the compiled function after checking the input format. This function is called in three different modes.
         t1 x t2 = r ==> t1 and t2 are not diagonaled, but r is. Useful for query x key = attention_scores
         t1 x t2 = r ==> t1 is diagonaled, but t2 and r are not. Useful to compuate attantion_scores x value = context
         t1 x t2 = r ==> t1 is diagonaled and it should be transposed, but t2 and r are not diagonaled. Useful in some of
                             the calculations in the backward pass.
-        '''
-        dtype = str(t1.dtype).split('.')[1]
+        """
+        dtype = str(t1.dtype).split(".")[1]
         device = t1.device.type
         assert len(t1.shape) == 4
         assert len(t1.shape) == len(t2.shape)
@@ -196,14 +252,26 @@ class GraphMM(torch.autograd.Function):
         # This functions computes diagonal_mm then saves the result in `r`
         if m == max_attn:
             # FIXME
-            print('Error: the hidden dimension {m} shouldn\'t match number of diagonals {c}')
+            print(
+                "Error: the hidden dimension {m} shouldn't match number of diagonals {c}"
+            )
             assert False
-        _graph_mm_function(t1, t2, r, q_k_mask, k_q_mask, max_attn, padding, transpose_t1, m if is_t1_diagonaled else max_attn)
+        _graph_mm_function(
+            t1,
+            t2,
+            r,
+            q_k_mask,
+            k_q_mask,
+            max_attn,
+            padding,
+            transpose_t1,
+            m if is_t1_diagonaled else max_attn,
+        )
         return r
 
     @staticmethod
     def _prepare_tensors(t):
-        '''Fix `stride()` information of input tensor. This addresses some inconsistency in stride information in PyTorch.
+        """Fix `stride()` information of input tensor. This addresses some inconsistency in stride information in PyTorch.
         For a tensor t, if t.size(0) == 1, then the value of t.stride()[0] doesn't matter.
         TVM expects this value to be the `product(t.size()[1:])` but PyTorch some times sets it to `t.stride()[1]`.
         Here's an example to reporduce this issue:
@@ -214,7 +282,7 @@ class GraphMM(torch.autograd.Function):
             > (1, 1)  # expected it to be (10, 1) as above
             print(torch.randn(10, 2).t().contiguous().stride())
             > (10, 1) # but gets the expected stride if the first dimension is > 1
-        '''
+        """
         assert t.is_contiguous()
         t_stride = list(t.stride())
         t_size = list(t.size())
@@ -229,9 +297,17 @@ class GraphMM(torch.autograd.Function):
     min_seq_len = 16  # unexpected output if seq_len < 16
 
     @staticmethod
-    def forward(ctx, t1: torch.Tensor, t2: torch.Tensor, q_k_mask, k_q_mask, is_t1_diagonaled: bool = False, padding: int = 0) -> torch.Tensor:
-        '''Compuates diagonal_mm of t1 and t2.
-        args: 
+    def forward(
+        ctx,
+        t1: torch.Tensor,
+        t2: torch.Tensor,
+        q_k_mask,
+        k_q_mask,
+        is_t1_diagonaled: bool = False,
+        padding: int = 0,
+    ) -> torch.Tensor:
+        """Compuates diagonal_mm of t1 and t2.
+        args:
         t1: torch.Tensor = (batch_size, seq_len, num_attention_heads, hidden_size|number_of_diagonals).
             t1 can be a regular tensor (e.g. `query_layer`) or a diagonaled one (e.g. `attention_scores`)
         t2: torch.Tensor = (batch_size, seq_len, num_attention_heads, hidden_size). This is always a non-diagonaled
@@ -246,9 +322,13 @@ class GraphMM(torch.autograd.Function):
         autoregressive: if true, return only the lower triangle
         returns: torch.Tensor = (batch_size, seq_len, num_attention_heads, hidden_size|number_of_diagonals)
             if t1 is diagonaed, result is non-diagonaled, and vice versa
-        '''
+        """
         seq_len = t1.size(1)
-        assert seq_len >= GraphMM.min_seq_len, 'avoid splitting errors by using seq_len >= {}'.format(GraphMM.min_seq_len)  # FIXME
+        assert (
+            seq_len >= GraphMM.min_seq_len
+        ), "avoid splitting errors by using seq_len >= {}".format(
+            GraphMM.min_seq_len
+        )  # FIXME
 
         t1 = GraphMM._prepare_tensors(t1)
         t2 = GraphMM._prepare_tensors(t2)
@@ -257,7 +337,14 @@ class GraphMM(torch.autograd.Function):
         ctx.save_for_backward(t1, t2, q_k_mask, k_q_mask)
         ctx.is_t1_diagonaled = is_t1_diagonaled
         # output = t1.mm(t2)  # what would have been called if this was a regular matmul
-        output = GraphMM._graph_mm(t1, t2, q_k_mask, k_q_mask, is_t1_diagonaled=is_t1_diagonaled, padding=padding)
+        output = GraphMM._graph_mm(
+            t1,
+            t2,
+            q_k_mask,
+            k_q_mask,
+            is_t1_diagonaled=is_t1_diagonaled,
+            padding=padding,
+        )
         return output
 
     @staticmethod
@@ -265,17 +352,35 @@ class GraphMM(torch.autograd.Function):
         t1, t2, q_k_mask, k_q_mask = ctx.saved_tensors
         is_t1_diagonaled = ctx.is_t1_diagonaled
         if not grad_output.is_contiguous():
-            grad_output = grad_output.contiguous()  # tvm requires all input tensors to be contiguous
+            grad_output = (
+                grad_output.contiguous()
+            )  # tvm requires all input tensors to be contiguous
         grad_output = GraphMM._prepare_tensors(grad_output)
         # http://cs231n.github.io/optimization-2/
         # https://pytorch.org/docs/master/notes/extending.html
         # grad_t1 = grad_output.mm(t2)  # what would have been called if this was a regular matmul
-        grad_t1 = GraphMM._graph_mm(grad_output, t2, q_k_mask, k_q_mask, is_t1_diagonaled=not is_t1_diagonaled)
+        grad_t1 = GraphMM._graph_mm(
+            grad_output, t2, q_k_mask, k_q_mask, is_t1_diagonaled=not is_t1_diagonaled
+        )
         # grad_t2 = grad_output.t().mm(t1)  # or `grad_t2 = t1.t().mm(grad_output).t()` because `(AB)^T = B^TA^T`
         if is_t1_diagonaled:
-            grad_t2 = GraphMM._graph_mm(t1, grad_output, q_k_mask, k_q_mask, is_t1_diagonaled=True, transpose_t1=True)
+            grad_t2 = GraphMM._graph_mm(
+                t1,
+                grad_output,
+                q_k_mask,
+                k_q_mask,
+                is_t1_diagonaled=True,
+                transpose_t1=True,
+            )
         else:
-            grad_t2 = GraphMM._graph_mm(grad_output, t1, q_k_mask, k_q_mask, is_t1_diagonaled=True, transpose_t1=True)
+            grad_t2 = GraphMM._graph_mm(
+                grad_output,
+                t1,
+                q_k_mask,
+                k_q_mask,
+                is_t1_diagonaled=True,
+                transpose_t1=True,
+            )
         return grad_t1, grad_t2, None, None, None, None, None
 
 

@@ -1,11 +1,15 @@
+import math
+
 import torch.nn as nn
 import torch.nn.functional as F
-import math
+
 from .hierarchical_mm_tvm import graph_mm as graph_mm_tvm
 
 
 class PyramidalAttention(nn.Module):
-    def __init__(self, n_head, d_model, d_k, d_v, dropout, normalize_before, q_k_mask, k_q_mask):
+    def __init__(
+        self, n_head, d_model, d_k, d_v, dropout, normalize_before, q_k_mask, k_q_mask
+    ):
         super(PyramidalAttention, self).__init__()
         self.normalize_before = normalize_before
         self.n_head = n_head
@@ -31,7 +35,7 @@ class PyramidalAttention(nn.Module):
         residual = hidden_states
 
         hidden_states = hidden_states
-        bsz, seq_len,  _ = hidden_states.size()
+        bsz, seq_len, _ = hidden_states.size()
 
         q = hidden_states
         if self.normalize_before:
@@ -62,4 +66,3 @@ class PyramidalAttention(nn.Module):
             context = self.layer_norm(context)
 
         return context
-

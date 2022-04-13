@@ -8,20 +8,45 @@ from gluonts.torch.modules.distribution_output import DistributionOutput, Studen
 from gluonts.torch.modules.feature import FeatureEmbedder
 from gluonts.torch.modules.scaler import MeanScaler, NOPScaler
 
-from pyraformer.Layers import EncoderLayer, Predictor, Decoder
-from pyraformer.Layers import Bottleneck_Construct, Conv_Construct, MaxPooling_Construct, AvgPooling_Construct
-from pyraformer.Layers import get_mask, refer_points, get_k_q, get_q_k, get_subsequent_mask
-from pyraformer.embed import SingleStepEmbedding, DataEmbedding, CustomEmbedding
+from pyraformer.embed import CustomEmbedding, DataEmbedding, SingleStepEmbedding
+from pyraformer.Layers import (
+    AvgPooling_Construct,
+    Bottleneck_Construct,
+    Conv_Construct,
+    Decoder,
+    EncoderLayer,
+    MaxPooling_Construct,
+    Predictor,
+    get_k_q,
+    get_mask,
+    get_q_k,
+    get_subsequent_mask,
+    refer_points,
+)
 
 
 class EncoderSS(nn.Module):
-    """ A encoder model with self attention mechanism. """
-    def __init__(self, covariate_size, 
-        num_seq, input_size ,dropout , d_model,
-        d_inner_hid, d_k, d_v ,
-        num_heads , n_layer, loss ,
-         window_size , inner_size,
-        use_tvm, prediction_length, device):
+    """A encoder model with self attention mechanism."""
+
+    def __init__(
+        self,
+        covariate_size,
+        num_seq,
+        input_size,
+        dropout,
+        d_model,
+        d_inner_hid,
+        d_k,
+        d_v,
+        num_heads,
+        n_layer,
+        loss,
+        window_size,
+        inner_size,
+        use_tvm,
+        prediction_length,
+        device,
+    ):
         super().__init__()
 
         self.d_model = d_model
@@ -31,21 +56,48 @@ class EncoderSS(nn.Module):
         self.indexes = refer_points(self.all_size, window_size, device)
 
         if use_tvm:
-          
-            assert len(set(self.window_size)) == 1, "Only constant window size is supported."
+
+            assert (
+                len(set(self.window_size)) == 1
+            ), "Only constant window size is supported."
             q_k_mask = get_q_k(input_size, inner_size, window_size[0], device)
             k_q_mask = get_k_q(q_k_mask)
-            self.layers = nn.ModuleList([
-              EncoderLayer(d_model, d_inner_hid, num_heads, d_k, d_v, dropout=dropout, \
-                  normalize_before=False, use_tvm=True, q_k_mask=q_k_mask, k_q_mask=k_q_mask) for i in range(n_layer)
-              ])
+            self.layers = nn.ModuleList(
+                [
+                    EncoderLayer(
+                        d_model,
+                        d_inner_hid,
+                        num_heads,
+                        d_k,
+                        d_v,
+                        dropout=dropout,
+                        normalize_before=False,
+                        use_tvm=True,
+                        q_k_mask=q_k_mask,
+                        k_q_mask=k_q_mask,
+                    )
+                    for i in range(n_layer)
+                ]
+            )
         else:
-            self.layers = nn.ModuleList([
-              EncoderLayer(d_model, d_inner_hid, num_heads, d_k, d_v, dropout=dropout, \
-                  normalize_before=False) for i in range(n_layer)
-              ])
+            self.layers = nn.ModuleList(
+                [
+                    EncoderLayer(
+                        d_model,
+                        d_inner_hid,
+                        num_heads,
+                        d_k,
+                        d_v,
+                        dropout=dropout,
+                        normalize_before=False,
+                    )
+                    for i in range(n_layer)
+                ]
+            )
 
-        self.embedding = SingleStepEmbedding(covariate_size, num_seq, d_model, input_size, device)
+        self.embedding = SingleStepEmbedding(
+            covariate_size, num_seq, d_model, input_size, device
+        )
 
         self.conv_layers = Bottleneck_Construct(d_model, window_size, d_k)
 
@@ -59,21 +111,38 @@ class EncoderSS(nn.Module):
         for i in range(len(self.layers)):
             seq_enc, _ = self.layers[i](seq_enc, mask)
 
-        indexes = self.indexes.repeat(seq_enc.size(0), 1, 1, seq_enc.size(2)).to(seq_enc.device)
+        indexes = self.indexes.repeat(seq_enc.size(0), 1, 1, seq_enc.size(2)).to(
+            seq_enc.device
+        )
         indexes = indexes.view(seq_enc.size(0), -1, seq_enc.size(2))
         all_enc = torch.gather(seq_enc, 1, indexes)
         all_enc = all_enc.view(seq_enc.size(0), self.all_size[0], -1)
 
         return all_enc
 
+
 class PyraformerSSModel(nn.Module):
     @validated()
-    def __init__(self, freq, covariate_size, 
-        num_seq, input_size ,dropout , d_model,
-        d_inner_hid, d_k, d_v ,
-        num_heads , n_layer, loss ,
-        window_size , inner_size,
-        use_tvm, prediction_length,context_length,lags_seq, 
+    def __init__(
+        self,
+        freq,
+        covariate_size,
+        num_seq,
+        input_size,
+        dropout,
+        d_model,
+        d_inner_hid,
+        d_k,
+        d_v,
+        num_heads,
+        n_layer,
+        loss,
+        window_size,
+        inner_size,
+        use_tvm,
+        prediction_length,
+        context_length,
+        lags_seq,
         num_feat_dynamic_real,
         num_feat_static_cat,
         num_feat_static_real,
@@ -81,25 +150,39 @@ class PyraformerSSModel(nn.Module):
         embedding_dimension,
         distr_output,
         # loss: DistributionLoss = NegativeLogLikelihood(),
-        scaling,num_parallel_samples,device):
-
+        scaling,
+        num_parallel_samples,
+        device,
+    ):
 
         super().__init__()
         self.context_length = context_length
         self.lags_seq = lags_seq or get_lags_for_frequency(freq_str=freq)
-        self.encoder = EncoderSS(covariate_size, 
-        num_seq, input_size ,dropout , d_model,
-        d_inner_hid, d_k, d_v ,
-        num_heads , n_layer, loss ,
-         window_size , inner_size,
-        use_tvm, prediction_length, device)
+        self.encoder = EncoderSS(
+            covariate_size,
+            num_seq,
+            input_size,
+            dropout,
+            d_model,
+            d_inner_hid,
+            d_k,
+            d_v,
+            num_heads,
+            n_layer,
+            loss,
+            window_size,
+            inner_size,
+            use_tvm,
+            prediction_length,
+            device,
+        )
 
-      # convert hidden vectors into two scalar
+        # convert hidden vectors into two scalar
         self.mean_hidden = Predictor(4 * d_model, 1)
         self.var_hidden = Predictor(4 * d_model, 1)
 
         self.softplus = nn.Softplus()
-    
+
     def forward(self, data):
         enc_output = self.encoder(data)
 
@@ -116,10 +199,11 @@ class PyraformerSSModel(nn.Module):
         sample_mu = mu[:, -1] * v
         sample_sigma = sigma[:, -1] * v
         return sample_mu, sample_sigma
-        
+
     @property
     def _past_length(self) -> int:
         return self.context_length + max(self.lags_seq)
+
     @property
     def _number_of_features(self) -> int:
         return (
@@ -128,6 +212,7 @@ class PyraformerSSModel(nn.Module):
             + self.num_feat_static_real
             + 1  # the log(scale)
         )
+
     def get_lagged_subsequences(
         self, sequence: torch.Tensor, subsequences_length: int, shift: int = 0
     ) -> torch.Tensor:
@@ -180,7 +265,7 @@ class PyraformerSSModel(nn.Module):
         assert (
             features is None or features.shape[2] == self._number_of_features
         ), f"{features.shape[2]}, expected {self._number_of_features}"
-    
+
     def create_network_inputs(
         self,
         feat_static_cat: torch.Tensor,
@@ -276,70 +361,149 @@ class PyraformerSSModel(nn.Module):
         if trailing_n is not None:
             sliced_params = [p[:, -trailing_n:] for p in params]
         return self.distr_output.distribution(sliced_params, scale=scale)
+
+
 class Encoder(nn.Module):
-  """ A encoder model with self attention mechanism. """
+    """A encoder model with self attention mechanism."""
 
-  def __init__(self, model, window_size, truncate, input_size, inner_size,decoder,num_head,d_model, d_k,d_v,d_inner_hid, dropout,n_layer, ,enc_in,covariate_size,seq_num,CSCM,d_bottleneck,num_head,use_tvm,device):
-    super().__init__()
+    def __init__(
+        self,
+        model,
+        window_size,
+        truncate,
+        input_size,
+        inner_size,
+        decoder,
+        num_head,
+        d_model,
+        d_k,
+        d_v,
+        d_inner_hid,
+        dropout,
+        n_layer,
+        enc_in,
+        covariate_size,
+        seq_num,
+        CSCM,
+        d_bottleneck,
+        num_head,
+        use_tvm,
+        device,
+    ):
+        super().__init__()
 
-    self.d_model = d_model
-    self.model_type = model
-    self.window_size = window_size
-    self.truncate = truncate
-    if decoder == 'attention':
-        self.mask, self.all_size = get_mask(input_size, window_size, inner_size, device)
-    else:
-        self.mask, self.all_size = get_mask(input_size+1, window_size, inner_size, device)
-    self.decoder_type = decoder
-    if decoder == 'FC':
-        self.indexes = refer_points(self.all_size, window_size, device)
-
-    if use_tvm:
-        assert len(set(self.window_size)) == 1, "Only constant window size is supported."
-        padding = 1 if decoder == 'FC' else 0
-        q_k_mask = get_q_k(input_size + padding, inner_size, window_size[0],device)
-        k_q_mask = get_k_q(q_k_mask)
-        self.layers = nn.ModuleList([
-            EncoderLayer(d_model, d_inner_hid, num_head, d_k, d_v, dropout=dropout, \
-                normalize_before=False, use_tvm=True, q_k_mask=q_k_mask, k_q_mask=k_q_mask) for i in range(n_layer)
-            ])
-    else:
-        self.layers = nn.ModuleList([
-          EncoderLayer(d_model, d_inner_hid, num_head, d_k, d_v, dropout=dropout, \
-              normalize_before=False) for i in range(n_layer)
-          ])
-
-        if opt.embed_type == 'CustomEmbedding':
-            self.enc_embedding = CustomEmbedding(enc_in, d_model, covariate_size, seq_num, dropout)
+        self.d_model = d_model
+        self.model_type = model
+        self.window_size = window_size
+        self.truncate = truncate
+        if decoder == "attention":
+            self.mask, self.all_size = get_mask(
+                input_size, window_size, inner_size, device
+            )
         else:
-            self.enc_embedding = DataEmbedding(enc_in, d_model, dropout)
+            self.mask, self.all_size = get_mask(
+                input_size + 1, window_size, inner_size, device
+            )
+        self.decoder_type = decoder
+        if decoder == "FC":
+            self.indexes = refer_points(self.all_size, window_size, device)
 
-    self.conv_layers = eval(CSCM)(d_model, window_size, d_bottleneck)
-    
-    
-    def forward(self, x_enc, x_mark_enc):
-        seq_enc = self.enc_embedding(x_enc, x_mark_enc)
-    
-        mask = self.mask.repeat(len(seq_enc), 1, 1).to(x_enc.device)
-        seq_enc = self.conv_layers(seq_enc)
+        if use_tvm:
+            assert (
+                len(set(self.window_size)) == 1
+            ), "Only constant window size is supported."
+            padding = 1 if decoder == "FC" else 0
+            q_k_mask = get_q_k(input_size + padding, inner_size, window_size[0], device)
+            k_q_mask = get_k_q(q_k_mask)
+            self.layers = nn.ModuleList(
+                [
+                    EncoderLayer(
+                        d_model,
+                        d_inner_hid,
+                        num_head,
+                        d_k,
+                        d_v,
+                        dropout=dropout,
+                        normalize_before=False,
+                        use_tvm=True,
+                        q_k_mask=q_k_mask,
+                        k_q_mask=k_q_mask,
+                    )
+                    for i in range(n_layer)
+                ]
+            )
+        else:
+            self.layers = nn.ModuleList(
+                [
+                    EncoderLayer(
+                        d_model,
+                        d_inner_hid,
+                        num_head,
+                        d_k,
+                        d_v,
+                        dropout=dropout,
+                        normalize_before=False,
+                    )
+                    for i in range(n_layer)
+                ]
+            )
 
-        for i in range(len(self.layers)):
-            seq_enc, _ = self.layers[i](seq_enc, mask)
-    
-        if self.decoder_type == 'FC':
-            indexes = self.indexes.repeat(seq_enc.size(0), 1, 1, seq_enc.size(2)).to(seq_enc.device)
-            indexes = indexes.view(seq_enc.size(0), -1, seq_enc.size(2))
-            all_enc = torch.gather(seq_enc, 1, indexes)
-            seq_enc = all_enc.view(seq_enc.size(0), self.all_size[0], -1)
-        elif self.decoder_type == 'attention' and self.truncate:
-            seq_enc = seq_enc[:, :self.all_size[0]]
-    
-        return seq_enc
+            if opt.embed_type == "CustomEmbedding":
+                self.enc_embedding = CustomEmbedding(
+                    enc_in, d_model, covariate_size, seq_num, dropout
+                )
+            else:
+                self.enc_embedding = DataEmbedding(enc_in, d_model, dropout)
 
-    
+        self.conv_layers = eval(CSCM)(d_model, window_size, d_bottleneck)
+
+        def forward(self, x_enc, x_mark_enc):
+            seq_enc = self.enc_embedding(x_enc, x_mark_enc)
+
+            mask = self.mask.repeat(len(seq_enc), 1, 1).to(x_enc.device)
+            seq_enc = self.conv_layers(seq_enc)
+
+            for i in range(len(self.layers)):
+                seq_enc, _ = self.layers[i](seq_enc, mask)
+
+            if self.decoder_type == "FC":
+                indexes = self.indexes.repeat(
+                    seq_enc.size(0), 1, 1, seq_enc.size(2)
+                ).to(seq_enc.device)
+                indexes = indexes.view(seq_enc.size(0), -1, seq_enc.size(2))
+                all_enc = torch.gather(seq_enc, 1, indexes)
+                seq_enc = all_enc.view(seq_enc.size(0), self.all_size[0], -1)
+            elif self.decoder_type == "attention" and self.truncate:
+                seq_enc = seq_enc[:, : self.all_size[0]]
+
+            return seq_enc
+
+
 class PyraformerLRModel(nn.Module):
     @validated()
-    def __init__(self, predict_step, d_model, input_size, decoder, window_size, truncate, model,d_inner_hid,num_head,d_k,d_v,dropout,enc_in,covariate_size,seq_num,CSCM,d_bottleneck,num_head,use_tvm,device):
+    def __init__(
+        self,
+        predict_step,
+        d_model,
+        input_size,
+        decoder,
+        window_size,
+        truncate,
+        model,
+        d_inner_hid,
+        num_head,
+        d_k,
+        d_v,
+        dropout,
+        enc_in,
+        covariate_size,
+        seq_num,
+        CSCM,
+        d_bottleneck,
+        num_head,
+        use_tvm,
+        device,
+    ):
         super().__init__()
 
         self.predict_step = predict_step
@@ -347,13 +511,46 @@ class PyraformerLRModel(nn.Module):
         self.input_size = input_size
         self.decoder_type = decoder
         self.channels = enc_in
-    
-        self.encoder = Encoder(model, window_size, truncate, input_size, inner_size,decoder,d_model, d_k,d_v,d_inner_hid, dropout,n_layer, ,enc_in,covariate_size,seq_num,CSCM,d_bottleneck,num_head,use_tvm,device)
-        if decoder == 'attention':
+
+        self.encoder = Encoder(
+            model,
+            window_size,
+            truncate,
+            input_size,
+            inner_size,
+            decoder,
+            d_model,
+            d_k,
+            d_v,
+            d_inner_hid,
+            dropout,
+            n_layer,
+            enc_in,
+            covariate_size,
+            seq_num,
+            CSCM,
+            d_bottleneck,
+            num_head,
+            use_tvm,
+            device,
+        )
+        if decoder == "attention":
             mask = get_subsequent_mask(input_size, window_size, predict_step, truncate)
-            self.decoder = Decoder(model,d_model,d_inner_hid,num_head,d_k,d_v,dropout,enc_in,covariate_size,seq_num, mask)
+            self.decoder = Decoder(
+                model,
+                d_model,
+                d_inner_hid,
+                num_head,
+                d_k,
+                d_v,
+                dropout,
+                enc_in,
+                covariate_size,
+                seq_num,
+                mask,
+            )
             self.predictor = Predictor(d_model, enc_in)
-        elif opt.decoder == 'FC':
+        elif opt.decoder == "FC":
             self.predictor = Predictor(4 * d_model, predict_step * enc_in)
 
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, pretrain):
@@ -366,20 +563,23 @@ class PyraformerLRModel(nn.Module):
                 type_prediction: batch*seq_len*num_classes (not normalized);
                 time_prediction: batch*seq_len.
         """
-        if self.decoder_type == 'attention':
+        if self.decoder_type == "attention":
             enc_output = self.encoder(x_enc, x_mark_enc)
             dec_enc = self.decoder(x_dec, x_mark_dec, enc_output)
 
             if pretrain:
-                dec_enc = torch.cat([enc_output[:, :self.input_size], dec_enc], dim=1)
+                dec_enc = torch.cat([enc_output[:, : self.input_size], dec_enc], dim=1)
                 pred = self.predictor(dec_enc)
             else:
                 pred = self.predictor(dec_enc)
-        elif self.decoder_type == 'FC':
+        elif self.decoder_type == "FC":
             enc_output = self.encoder(x_enc, x_mark_enc)[:, -1, :]
-            pred = self.predictor(enc_output).view(enc_output.size(0), self.predict_step, -1)
+            pred = self.predictor(enc_output).view(
+                enc_output.size(0), self.predict_step, -1
+            )
 
         return pred
+
 
 class TransformerModel(nn.Module):
     @validated()
