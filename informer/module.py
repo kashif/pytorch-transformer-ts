@@ -158,8 +158,8 @@ class ProbAttention(nn.Module):
         keys = keys.transpose(2, 1)
         values = values.transpose(2, 1)
 
-        U_part = self.factor * np.ceil(np.log(L_K)).astype("int").item()  # c*ln(L_k)
-        u = self.factor * np.ceil(np.log(L_Q)).astype("int").item()  # c*ln(L_q)
+        U_part = self.factor * np.ceil(np.log1p(L_K)).astype("int").item()  # c*ln(L_k)
+        u = self.factor * np.ceil(np.log1p(L_Q)).astype("int").item()  # c*ln(L_q)
 
         U_part = U_part if U_part < L_K else L_K
         u = u if u < L_Q else L_Q
