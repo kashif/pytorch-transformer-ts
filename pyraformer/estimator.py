@@ -5,15 +5,12 @@ from gluonts.core.component import validated
 from gluonts.dataset.common import Dataset
 from gluonts.dataset.field_names import FieldName
 from gluonts.itertools import Cyclic, IterableSlice, PseudoShuffled
-from gluonts.time_feature import (
-    TimeFeature,
-    get_lags_for_frequency,
-    time_features_from_frequency_str,
-)
+from gluonts.time_feature import TimeFeature, time_features_from_frequency_str
 from gluonts.torch.model.estimator import PyTorchLightningEstimator
 from gluonts.torch.model.predictor import PyTorchPredictor
 from gluonts.torch.modules.distribution_output import DistributionOutput, StudentTOutput
 from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
+from gluonts.time_feature import get_lags_for_frequency
 from gluonts.torch.util import IterableDataset
 from gluonts.transform import (
     AddAgeFeature,
@@ -32,13 +29,12 @@ from gluonts.transform import (
     VstackFeatures,
 )
 from gluonts.transform.sampler import InstanceSampler
-from torch.utils.data import DataLoader
-from torch.utils.data.sampler import RandomSampler
-
 from lightning_module import PyraformerLightningModule
-from module import PyraformerLRModel, PyraformerSSModel
+from module import PyraformerSSModel
+from module import PyraformerLRModel
+from torch.utils.data import DataLoader
 from tools import SingleStepLoss as LossFactory
-
+from torch.utils.data.sampler import RandomSampler
 PREDICTION_INPUT_NAMES = [
     "feat_static_cat",
     "feat_static_real",
@@ -60,28 +56,30 @@ class PyraformerEstimator(PyTorchLightningEstimator):
         self,
         freq: str,
         prediction_length: int,
-        # Train parameters
+        #Train parameters
         inner_batch: int = 8,
         lr: float = 1e-5,
         visualize_fre: int = 2000,
         pretrain: bool = True,
-        hard_sample_mining: bool = True,
+        hard_sample_mining:bool=True,
         covariate_size: int = 3,
-        # Model parameters
-        num_seq: int = 370,  #
-        decoder: str = "FC",  # selection: [FC, attention]
+        
+         # Model parameters
+        num_seq: int = 370,#
+        decoder: str = 'FC',# selection: [FC, attention]
         context_length: Optional[int] = None,
         input_size: int = 1,
         dropout: float = 0.1,
         d_model: int = 512,
         d_inner_hid: int = 512,
         d_k: int = 128,
-        d_v: int = 128,
+        d_v:int = 128,
         num_heads: int = 4,
         n_layer: int = 4,
         # loss: DistributionLoss = LossFactory,
         ignore_zero: bool = True,
-        single_step: bool = True,  # if False, Multistep=True
+        single_step: bool = True,#if False, Multistep=True
+        
         inner_size: int = 3,
         use_tvm: bool = False,
         num_feat_dynamic_real: int = 0,
@@ -100,7 +98,7 @@ class PyraformerEstimator(PyTorchLightningEstimator):
         trainer_kwargs: Optional[Dict[str, Any]] = dict(),
         train_sampler: Optional[InstanceSampler] = None,
         validation_sampler: Optional[InstanceSampler] = None,
-        window_size: int = [4, 4, 4],
+        window_size: int = [4, 4, 4]
     ) -> None:
         trainer_kwargs = {
             "max_epochs": 10,
@@ -127,15 +125,11 @@ class PyraformerEstimator(PyTorchLightningEstimator):
         self.n_layer = n_layer
         self.single_step = single_step
         self.ignore_zero = ignore_zero
-        self.loss = (
-            LossFactory(self.ignore_zero)
-            if self.single_step == True
-            else torch.nn.MSELoss(reduction="none")
-        )
+        self.loss = LossFactory(self.ignore_zero) if self.single_step==True else torch.nn.MSELoss(reduction='none')
         self.batch_size = batch_size
         self.distr_output = distr_output
 
-        self.window_size = window_size  # [4,4,4]#window_size
+        self.window_size = window_size#[4,4,4]#window_size
         self.inner_size = inner_size
         self.use_tvm = use_tvm
         self.prediction_length = prediction_length
@@ -325,35 +319,18 @@ class PyraformerEstimator(PyTorchLightningEstimator):
     def create_lightning_module(self) -> PyraformerLightningModule:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if self.single_step:
-            model = PyraformerSSModel(
-                freq=self.freq,
-                covariate_size=self.covariate_size,
-                num_seq=self.num_seq,
-                input_size=self.input_size,
-                dropout=self.dropout,
-                d_model=self.d_model,
-                d_inner_hid=self.d_inner_hid,
-                d_k=self.d_k,
-                d_v=self.d_v,
-                num_heads=self.num_heads,
-                n_layer=self.n_layer,
-                loss=self.loss,
-                window_size=self.window_size,
-                inner_size=self.inner_size,
-                use_tvm=self.use_tvm,
-                prediction_length=self.prediction_length,
-                context_length=self.context_length,
-                lags_seq=self.lags_seq,
-                num_feat_dynamic_real=self.num_feat_dynamic_real,
-                num_feat_static_cat=self.num_feat_static_cat,
-                num_feat_static_real=self.num_feat_static_real,
-                cardinality=self.cardinality,
-                embedding_dimension=self.embedding_dimension,
-                distr_output=self.distr_output,
-                scaling=self.scaling,
-                num_parallel_samples=self.num_parallel_samples,
-                device=device,
-            )
+            model = PyraformerSSModel(freq= self.freq, covariate_size = self.covariate_size,
+            num_seq=self.num_seq, input_size = self.input_size, dropout = self.dropout, d_model = self.d_model,
+            d_inner_hid = self.d_inner_hid, d_k = self.d_k, d_v = self.d_v,
+            num_heads = self.num_heads, n_layer = self.n_layer, loss =  self.loss,
+            window_size = self.window_size, inner_size = self.inner_size,
+            use_tvm = self.use_tvm, prediction_length = self.prediction_length,context_length = self.context_length, lags_seq = self.lags_seq, num_feat_dynamic_real= self.num_feat_dynamic_real, 
+        num_feat_static_cat = self.num_feat_static_cat,
+        num_feat_static_real = self.num_feat_static_real,
+        cardinality = self.cardinality,
+        embedding_dimension = self.embedding_dimension,
+        distr_output=self.distr_output,
+        scaling=self.scaling,num_parallel_samples=self.num_parallel_samples, device=device)
         # else:
         #     model = PyraformerLRModel(freq= self.freq, covariate_size = self.covariate_size,
         #     num_seq=self.num_seq, input_size = self.input_size, dropout = self.dropout, d_model = self.d_model,
@@ -362,3 +339,5 @@ class PyraformerEstimator(PyTorchLightningEstimator):
         #     window_size = self.window_size, inner_size = self.inner_size,
         #     use_tvm = self.use_tvm, prediction_length = self.prediction_length,context_length = self.context_length, lags_seq = self.lags_seq, device=device)
         return PyraformerLightningModule(model=model, loss=self.loss)
+
+        

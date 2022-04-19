@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 class ScaledDotProductAttention(nn.Module):
-    """Scaled Dot-Product Attention"""
+    """ Scaled Dot-Product Attention """
 
     def __init__(self, temperature, attn_dropout=0.2):
         super().__init__()
@@ -22,3 +22,4 @@ class ScaledDotProductAttention(nn.Module):
         output = torch.matmul(attn, v)
 
         return output, attn
+

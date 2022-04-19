@@ -1,10 +1,9 @@
-from .estimator import PyraformerEstimator
-from .lightning_module import PyraformerLightningModule
-from .module import PyraformerLRModel, PyraformerSSModel
+from .estimator import TransformerEstimator
+from .lightning_module import TransformerLightningModule
+from .module import TransformerModel
 
 __all__ = [
-    "PyraformerSSModel",
-    "PyraformerLRModel",
-    "PyraformerLightningModule",
-    "PyraformerEstimator",
+    "TransformerModel",
+    "TransformerLightningModule",
+    "TransformerEstimator",
 ]
