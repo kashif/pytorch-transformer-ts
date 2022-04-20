@@ -35,6 +35,7 @@ from module import PyraformerLRModel
 from torch.utils.data import DataLoader
 from tools import SingleStepLoss as LossFactory
 from torch.utils.data.sampler import RandomSampler
+
 PREDICTION_INPUT_NAMES = [
     "feat_static_cat",
     "feat_static_real",
@@ -56,30 +57,33 @@ class PyraformerEstimator(PyTorchLightningEstimator):
         self,
         freq: str,
         prediction_length: int,
-        #Train parameters
+        # Train parameters
         inner_batch: int = 8,
         lr: float = 1e-5,
         visualize_fre: int = 2000,
         pretrain: bool = True,
-        hard_sample_mining:bool=True,
+        hard_sample_mining: bool = True,
         covariate_size: int = 3,
-        
-         # Model parameters
-        num_seq: int = 370,#
-        decoder: str = 'FC',# selection: [FC, attention]
+        # Model parameters
+        num_seq: int = 370,  #
+        decoder: str = "FC",  # selection: [FC, attention]
         context_length: Optional[int] = None,
         input_size: int = 1,
         dropout: float = 0.1,
         d_model: int = 512,
         d_inner_hid: int = 512,
         d_k: int = 128,
-        d_v:int = 128,
+        d_v: int = 128,
+        d_bottleneck: int = 128,
         num_heads: int = 4,
         n_layer: int = 4,
+        enc_in: int = 1,  # depends on dataset used
+        CSCM: str = "Bottleneck_Construct",  # [Bottleneck_Construct, Conv_Construct, MaxPooling_Construct, AvgPooling_Construct]
+        embed_type: str = "CustomEmbedding", #[DataEmbedding, CustomEmbedding]
+        truncate: bool = False,
         # loss: DistributionLoss = LossFactory,
         ignore_zero: bool = True,
-        single_step: bool = True,#if False, Multistep=True
-        
+        single_step: bool = True,  # if False, Multistep=True
         inner_size: int = 3,
         use_tvm: bool = False,
         num_feat_dynamic_real: int = 0,
@@ -98,7 +102,7 @@ class PyraformerEstimator(PyTorchLightningEstimator):
         trainer_kwargs: Optional[Dict[str, Any]] = dict(),
         train_sampler: Optional[InstanceSampler] = None,
         validation_sampler: Optional[InstanceSampler] = None,
-        window_size: int = [4, 4, 4]
+        window_size: int = [4, 4, 4],
     ) -> None:
         trainer_kwargs = {
             "max_epochs": 10,
@@ -121,15 +125,25 @@ class PyraformerEstimator(PyTorchLightningEstimator):
         self.d_inner_hid = d_inner_hid
         self.d_k = d_k
         self.d_v = d_v
+        self.d_bottleneck = d_bottleneck
         self.num_heads = num_heads
         self.n_layer = n_layer
         self.single_step = single_step
         self.ignore_zero = ignore_zero
-        self.loss = LossFactory(self.ignore_zero) if self.single_step==True else torch.nn.MSELoss(reduction='none')
+        self.decoder = decoder
+        self.enc_in = enc_in
+        self.CSCM = CSCM
+        self.embed_type = embed_type
+        self.truncate = truncate
+        self.loss = (
+            LossFactory(self.ignore_zero)
+            if self.single_step == True
+            else torch.nn.MSELoss(reduction="none")
+        )
         self.batch_size = batch_size
         self.distr_output = distr_output
 
-        self.window_size = window_size#[4,4,4]#window_size
+        self.window_size = window_size  # [4,4,4]#window_size
         self.inner_size = inner_size
         self.use_tvm = use_tvm
         self.prediction_length = prediction_length
@@ -319,25 +333,67 @@ class PyraformerEstimator(PyTorchLightningEstimator):
     def create_lightning_module(self) -> PyraformerLightningModule:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if self.single_step:
-            model = PyraformerSSModel(freq= self.freq, covariate_size = self.covariate_size,
-            num_seq=self.num_seq, input_size = self.input_size, dropout = self.dropout, d_model = self.d_model,
-            d_inner_hid = self.d_inner_hid, d_k = self.d_k, d_v = self.d_v,
-            num_heads = self.num_heads, n_layer = self.n_layer, loss =  self.loss,
-            window_size = self.window_size, inner_size = self.inner_size,
-            use_tvm = self.use_tvm, prediction_length = self.prediction_length,context_length = self.context_length, lags_seq = self.lags_seq, num_feat_dynamic_real= self.num_feat_dynamic_real, 
-        num_feat_static_cat = self.num_feat_static_cat,
-        num_feat_static_real = self.num_feat_static_real,
-        cardinality = self.cardinality,
-        embedding_dimension = self.embedding_dimension,
-        distr_output=self.distr_output,
-        scaling=self.scaling,num_parallel_samples=self.num_parallel_samples, device=device)
-        # else:
-        #     model = PyraformerLRModel(freq= self.freq, covariate_size = self.covariate_size,
-        #     num_seq=self.num_seq, input_size = self.input_size, dropout = self.dropout, d_model = self.d_model,
-        #     d_inner_hid = self.d_inner_hid, d_k = self.d_k, d_v = self.d_v,
-        #     num_heads = self.num_heads, n_layer = self.n_layer, loss =  self.loss,
-        #     window_size = self.window_size, inner_size = self.inner_size,
-        #     use_tvm = self.use_tvm, prediction_length = self.prediction_length,context_length = self.context_length, lags_seq = self.lags_seq, device=device)
+            model = PyraformerSSModel(
+                freq=self.freq,
+                covariate_size=self.covariate_size,
+                num_seq=self.num_seq,
+                input_size=self.input_size,
+                dropout=self.dropout,
+                d_model = self.d_model,
+                d_inner_hid=self.d_inner_hid,
+                d_k=self.d_k,
+                d_v=self.d_v,
+                num_heads=self.num_heads,
+                n_layer=self.n_layer,
+                loss=self.loss,
+                window_size=self.window_size,
+                inner_size=self.inner_size,
+                use_tvm=self.use_tvm,
+                prediction_length=self.prediction_length,
+                context_length=self.context_length,
+                lags_seq=self.lags_seq,
+                num_feat_dynamic_real=self.num_feat_dynamic_real,
+                num_feat_static_cat=self.num_feat_static_cat,
+                num_feat_static_real=self.num_feat_static_real,
+                cardinality=self.cardinality,
+                embedding_dimension=self.embedding_dimension,
+                distr_output=self.distr_output,
+                scaling=self.scaling,
+                num_parallel_samples=self.num_parallel_samples,
+                device=device,
+            )
+        else:
+            model = PyraformerLRModel(
+                predict_step=self.prediction_length,
+                d_model=self.d_model,
+                input_size=self.input_size,
+                decoder=self.decoder,
+                window_size=self.window_size,
+                truncate=self.truncate,
+                d_inner_hid=self.d_inner_hid,
+                d_k=self.d_k,
+                d_v=self.d_v,
+                dropout=self.dropout,
+                enc_in=self.enc_in,
+                covariate_size=self.covariate_size,
+                seq_num=self.num_seq,
+                CSCM=self.CSCM,
+                d_bottleneck=self.d_bottleneck,
+                num_head=self.num_heads,
+                n_layer=self.n_layer,
+                inner_size=self.inner_size,
+                use_tvm=self.use_tvm,
+                prediction_length=self.prediction_length,
+                context_length=self.context_length,
+                lags_seq=self.lags_seq,
+                num_feat_dynamic_real=self.num_feat_dynamic_real,
+                num_feat_static_cat=self.num_feat_static_cat,
+                num_feat_static_real=self.num_feat_static_real,
+                cardinality=self.cardinality,
+                embedding_dimension=self.embedding_dimension,
+                num_parallel_samples=self.num_parallel_samples,
+                embed_type = self.embed_type,
+                distr_output= self.distr_output,
+                device=device,
+            )
         return PyraformerLightningModule(model=model, loss=self.loss)
-
-        

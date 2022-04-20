@@ -378,10 +378,10 @@ class Predictor(nn.Module):
 class Decoder(nn.Module):
     """ A encoder model with self attention mechanism. """
 
-    def __init__(self, model,d_model,d_inner_hid,num_head,d_k,d_v,dropout,enc_in,covariate_size,seq_num, mask):
+    def __init__(self,d_model,d_inner_hid,num_head,d_k,d_v,dropout,enc_in,covariate_size,seq_num, mask):
         super().__init__()
 
-        self.model_type = model
+        # self.model_type = model
         self.mask = mask
 
         self.layers = nn.ModuleList([
