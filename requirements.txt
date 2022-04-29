@@ -5,3 +5,4 @@ datasets
 xformers
 https://github.com/ml-jku/hopfield-layers
 etsformer-pytorch
+reformer_pytorch
