@@ -137,8 +137,10 @@ class ReformerModel(nn.Module):
             dec_heads=nhead,
             enc_depth=num_encoder_layers,
             dec_depth=num_decoder_layers,
-            enc_bucket_size=self.prediction_length // 2,
-            dec_bucket_size=(self.context_length + self.prediction_length) // 2,
+            # enc_bucket_size=self.prediction_length // 2,
+            # dec_bucket_size=(self.context_length + self.prediction_length) // 2,
+            enc_bucket_size=self.context_length // 2,
+            dec_bucket_size=self.prediction_length // 2,
             enc_lsh_dropout=dropout,
             enc_ff_dropout=dropout,
             enc_post_attn_dropout=dropout,
@@ -357,7 +359,7 @@ class ReformerModel(nn.Module):
 
         future_samples = []
 
-        # greedy decoding
+        # greedy-decoding / vs. nucleus sampling or top-p or ...
         for k in range(self.prediction_length):
             # self._check_shapes(repeated_past_target, next_sample, next_features)
             # sequence = torch.cat((repeated_past_target, next_sample), dim=1)
@@ -373,13 +375,26 @@ class ReformerModel(nn.Module):
                 lags_shape[0], lags_shape[1], -1
             )
 
+            # concat a tensor of zeros of seq len prediction_len - k + 1 to decoder_input
+            B, _, L = reshaped_lagged_sequence.shape
+
+            zero_pad = torch.zeros(
+                (B, self.prediction_length - k - 1, L),
+                device=reshaped_lagged_sequence.device,
+            )
+
+            reshaped_lagged_sequence = torch.cat(
+                [reshaped_lagged_sequence, zero_pad], dim=1
+            )
+
+            # concat the full feat to this padded reshaped_lagged_seq
             decoder_input = torch.cat(
-                (reshaped_lagged_sequence, repeated_features[:, : k + 1]), dim=-1
+                (reshaped_lagged_sequence, repeated_features), dim=-1
             )
 
             output = self.reformer.decoder(decoder_input, keys=repeated_enc_out)
 
-            params = self.param_proj(output[:, -1:])
+            params = self.param_proj(output[:, k : k + 1])
             distr = self.output_distribution(params, scale=repeated_scale)
             next_sample = distr.sample()
 
