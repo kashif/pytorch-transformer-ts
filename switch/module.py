@@ -75,7 +75,7 @@ class SwitchFeedForward(nn.Module):
         ]
 
         # Initialize an empty tensor to store outputs
-        final_output = x.new_zeros((batch_size, seq_len, self.dim_feedforward))
+        final_output = x.new_zeros((batch_size * seq_len, self.dim_feedforward))
 
         # Capacity of each expert.
         # $$\mathrm{expert\;capacity} =
