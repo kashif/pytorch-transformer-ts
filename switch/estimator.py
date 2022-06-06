@@ -58,6 +58,10 @@ class SwitchTransformerEstimator(PyTorchLightningEstimator):
         num_encoder_layers: int,
         num_decoder_layers: int,
         dim_feedforward: int,
+        capacity_factor: float,
+        n_experts: int,
+        is_scale_prob: bool = True,
+        drop_tokens: bool = False,
         input_size: int = 1,
         activation: str = "gelu",
         dropout: float = 0.1,
@@ -100,7 +104,12 @@ class SwitchTransformerEstimator(PyTorchLightningEstimator):
         self.activation = activation
         self.dim_feedforward = dim_feedforward
         self.dropout = dropout
-
+        self.n_experts = n_experts
+        self.capacity_factor = capacity_factor
+        self.is_scale_prob = is_scale_prob
+        self.drop_tokens = drop_tokens
+        
+        
         self.num_feat_dynamic_real = num_feat_dynamic_real
         self.num_feat_static_cat = num_feat_static_cat
         self.num_feat_static_real = num_feat_static_real
@@ -293,13 +302,17 @@ class SwitchTransformerEstimator(PyTorchLightningEstimator):
             num_feat_static_cat=max(1, self.num_feat_static_cat),
             cardinality=self.cardinality,
             embedding_dimension=self.embedding_dimension,
-            # transformer arguments
+            # switch transformer arguments
             nhead=self.nhead,
             num_encoder_layers=self.num_encoder_layers,
             num_decoder_layers=self.num_decoder_layers,
             activation=self.activation,
             dropout=self.dropout,
             dim_feedforward=self.dim_feedforward,
+            capacity_factor=self.capacity_factor,
+            drop_tokens=self.drop_tokens,
+            is_scale_prob=self.is_scale_prob,
+            n_experts=self.n_experts,
             # univariate input
             input_size=self.input_size,
             distr_output=self.distr_output,
