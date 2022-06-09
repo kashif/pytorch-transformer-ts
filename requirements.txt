@@ -1,3 +1,4 @@
+orjson
 torch
 gluonts
 pytorch-lightning
