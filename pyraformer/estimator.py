@@ -8,7 +8,7 @@ from gluonts.itertools import Cyclic, IterableSlice, PseudoShuffled
 from gluonts.time_feature import TimeFeature, time_features_from_frequency_str
 from gluonts.torch.model.estimator import PyTorchLightningEstimator
 from gluonts.torch.model.predictor import PyTorchPredictor
-from gluonts.torch.modules.distribution_output import DistributionOutput, StudentTOutput
+from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
 from gluonts.time_feature import get_lags_for_frequency
 from gluonts.torch.util import IterableDataset
@@ -79,7 +79,7 @@ class PyraformerEstimator(PyTorchLightningEstimator):
         n_layer: int = 4,
         enc_in: int = 1,  # depends on dataset used
         CSCM: str = "Bottleneck_Construct",  # [Bottleneck_Construct, Conv_Construct, MaxPooling_Construct, AvgPooling_Construct]
-        embed_type: str = "CustomEmbedding", #[DataEmbedding, CustomEmbedding]
+        embed_type: str = "CustomEmbedding",  # [DataEmbedding, CustomEmbedding]
         truncate: bool = False,
         # loss: DistributionLoss = LossFactory,
         ignore_zero: bool = True,
@@ -339,7 +339,7 @@ class PyraformerEstimator(PyTorchLightningEstimator):
                 num_seq=self.num_seq,
                 input_size=self.input_size,
                 dropout=self.dropout,
-                d_model = self.d_model,
+                d_model=self.d_model,
                 d_inner_hid=self.d_inner_hid,
                 d_k=self.d_k,
                 d_v=self.d_v,
@@ -392,8 +392,8 @@ class PyraformerEstimator(PyTorchLightningEstimator):
                 cardinality=self.cardinality,
                 embedding_dimension=self.embedding_dimension,
                 num_parallel_samples=self.num_parallel_samples,
-                embed_type = self.embed_type,
-                distr_output= self.distr_output,
+                embed_type=self.embed_type,
+                distr_output=self.distr_output,
                 device=device,
             )
         return PyraformerLightningModule(model=model, loss=self.loss)

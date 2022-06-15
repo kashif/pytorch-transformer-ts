@@ -38,7 +38,7 @@ from gluonts.torch.util import (
 )
 from gluonts.torch.model.estimator import PyTorchLightningEstimator
 from gluonts.torch.model.predictor import PyTorchPredictor
-from gluonts.torch.modules.distribution_output import (
+from gluonts.torch.distributions import (
     DistributionOutput,
     StudentTOutput,
 )
@@ -60,11 +60,11 @@ class TransformerModel(nn.Module):
         cardinality: List[int],
         embedding_dimension: Optional[List[int]] = None,
         # Added transformer arguments
-        encoder = None, 
-        decoder = None, 
-        embeding = None, 
-        target_embed = None , 
-        generator = None,
+        encoder=None,
+        decoder=None,
+        embeding=None,
+        target_embed=None,
+        generator=None,
         #############################
         dropout_rate: float = 0.1,
         distr_output: DistributionOutput = StudentTOutput(),
@@ -73,7 +73,7 @@ class TransformerModel(nn.Module):
         num_parallel_samples: int = 100,
     ) -> None:
         super().__init__()
-        
+
         self.context_length = context_length
         self.prediction_length = prediction_length
         self.distr_output = distr_output
@@ -98,7 +98,7 @@ class TransformerModel(nn.Module):
             self.scaler = MeanScaler(dim=1, keepdim=True)
         else:
             self.scaler = NOPScaler(dim=1, keepdim=True)
-            
+
         # Added transformer enc-decoder and mask initializer
         self.encoder = encoder
         self.decoder = decoder
@@ -106,16 +106,14 @@ class TransformerModel(nn.Module):
         self.target_embed = target_embed
         self.generator = generator
         ########################
-    
-
 
     # TODO
     # add method that does the forward for training
-    
+
     """
     A build-in Encoder-Decoder architecture for TransformerModel class
     """
-    
+
     def forward(self, src, tgt, mask_source, mask_target):
         "Take in and process masked sourcerc and target sequences."
         memory = self.encoder(self.embeding(src), mask_source)
@@ -124,12 +122,10 @@ class TransformerModel(nn.Module):
 
     def encode(self, src, mask_source):
         return self.encoder(self.src_embed(src), mask_source)
-    
+
     def decode(self, memory, mask_source, tgt, mask_target):
         return self.decoder(self.tgt_embed(tgt), memory, mask_source, mask_target)
-    
-    
-    
+
     @property
     def _number_of_features(self) -> int:
         return (
@@ -142,7 +138,7 @@ class TransformerModel(nn.Module):
     @property
     def _past_length(self) -> int:
         return self.context_length + max(self.lags_seq)
-    
+
     # for prediction
     def forward(
         self,
@@ -156,8 +152,5 @@ class TransformerModel(nn.Module):
     ) -> torch.Tensor:
         if num_parallel_samples is None:
             num_parallel_samples = self.num_parallel_samples
-            
-        # TODO        
 
-
- 
+        # TODO

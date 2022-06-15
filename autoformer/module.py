@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from gluonts.core.component import validated
 from gluonts.time_feature import get_lags_for_frequency
-from gluonts.torch.modules.distribution_output import DistributionOutput, StudentTOutput
+from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.modules.feature import FeatureEmbedder
 from gluonts.torch.modules.scaler import MeanScaler, NOPScaler
 

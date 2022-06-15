@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from gluonts.core.component import validated
 from gluonts.time_feature import get_lags_for_frequency
-from gluonts.torch.modules.distribution_output import DistributionOutput, StudentTOutput
+from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.modules.feature import FeatureEmbedder
 from gluonts.torch.modules.scaler import MeanScaler, NOPScaler
 
@@ -151,7 +151,6 @@ class PyraformerSSModel(nn.Module):
         scaling,
         num_parallel_samples,
         device,
-      
     ):
 
         super().__init__()
@@ -179,7 +178,7 @@ class PyraformerSSModel(nn.Module):
         # convert hidden vectors into two scalar
         self.mean_hidden = Predictor(4 * d_model, 1)
         self.var_hidden = Predictor(4 * d_model, 1)
-        
+
         self.softplus = nn.Softplus()
         self.distr_output = distr_output
 
@@ -512,7 +511,7 @@ class PyraformerLRModel(nn.Module):
         num_parallel_samples,
         embed_type,
         distr_output,
-        device
+        device,
     ):
         super().__init__()
 
@@ -524,7 +523,7 @@ class PyraformerLRModel(nn.Module):
         self.distr_output = distr_output
         self.context_length = context_length
         self.lags_seq = lags_seq
-        
+
         self.encoder = Encoder(
             # model,
             window_size,
@@ -593,10 +592,10 @@ class PyraformerLRModel(nn.Module):
             )
 
         return pred
-        
+
     @property
     def _past_length(self) -> int:
-        return self.predict_step #+ max(0,self.lags_seq)
+        return self.predict_step  # + max(0,self.lags_seq)
 
     @property
     def _number_of_features(self) -> int:
