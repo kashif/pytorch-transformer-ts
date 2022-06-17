@@ -284,7 +284,6 @@ class SwitchTransformerEstimator(PyTorchLightningEstimator):
             input_names=PREDICTION_INPUT_NAMES,
             prediction_net=module.model,
             batch_size=self.batch_size,
-            freq=self.freq,
             prediction_length=self.prediction_length,
             device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         )
