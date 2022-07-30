@@ -15,6 +15,7 @@ import random
 from matplotlib import pyplot as plt
 from torch.nn.functional import interpolate
 
+
 class TriangularCausalMask:
     def __init__(self, B, L, device="cpu"):
         mask_shape = [B, 1, L, L]
@@ -41,36 +42,40 @@ class ProbMask:
     def mask(self):
         return self._mask
 
-class LocalMask():
-    def __init__(self, B, L,S,device="cpu"):
+
+class LocalMask:
+    def __init__(self, B, L, S, device="cpu"):
         mask_shape = [B, 1, L, S]
         with torch.no_grad():
             self.len = math.ceil(np.log2(L))
-            self._mask1 = torch.triu(torch.ones(mask_shape, dtype=torch.bool), diagonal=1).to(device)
-            self._mask2 = ~torch.triu(torch.ones(mask_shape,dtype=torch.bool),diagonal=-self.len).to(device)
-            self._mask = self._mask1+self._mask2
+            self._mask1 = torch.triu(
+                torch.ones(mask_shape, dtype=torch.bool), diagonal=1
+            ).to(device)
+            self._mask2 = ~torch.triu(
+                torch.ones(mask_shape, dtype=torch.bool), diagonal=-self.len
+            ).to(device)
+            self._mask = self._mask1 + self._mask2
+
     @property
     def mask(self):
         return self._mask
-        
+
+
 def adjust_learning_rate(optimizer, epoch, args):
     # lr = args.learning_rate * (0.2 ** (epoch // 2))
-    if args.lradj == 'type1':
+    if args.lradj == "type1":
         lr_adjust = {epoch: args.learning_rate * (0.5 ** ((epoch - 1) // 1))}
-    elif args.lradj == 'type2':
-        lr_adjust = {
-            2: 5e-5, 4: 1e-5, 6: 5e-6, 8: 1e-6,
-            10: 5e-7, 15: 1e-7, 20: 5e-8
-        }
-    elif args.lradj =='type3':
+    elif args.lradj == "type2":
+        lr_adjust = {2: 5e-5, 4: 1e-5, 6: 5e-6, 8: 1e-6, 10: 5e-7, 15: 1e-7, 20: 5e-8}
+    elif args.lradj == "type3":
         lr_adjust = {epoch: args.learning_rate}
-    elif args.lradj == 'type4':
+    elif args.lradj == "type4":
         lr_adjust = {epoch: args.learning_rate * (0.9 ** ((epoch - 1) // 1))}
     if epoch in lr_adjust.keys():
         lr = lr_adjust[epoch]
         for param_group in optimizer.param_groups:
-            param_group['lr'] = lr
-        print('Updating learning rate to {}'.format(lr))
+            param_group["lr"] = lr
+        print("Updating learning rate to {}".format(lr))
 
 
 class EarlyStopping:
@@ -90,7 +95,7 @@ class EarlyStopping:
             self.save_checkpoint(val_loss, model, path)
         elif score < self.best_score + self.delta:
             self.counter += 1
-            print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            print(f"EarlyStopping counter: {self.counter} out of {self.patience}")
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
@@ -100,19 +105,22 @@ class EarlyStopping:
 
     def save_checkpoint(self, val_loss, model, path):
         if self.verbose:
-            print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
-        torch.save(model.state_dict(), path + '/' + 'checkpoint.pth')
+            print(
+                f"Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ..."
+            )
+        torch.save(model.state_dict(), path + "/" + "checkpoint.pth")
         self.val_loss_min = val_loss
 
 
 class dotdict(dict):
     """dot.notation access to dictionary attributes"""
+
     __getattr__ = dict.get
     __setattr__ = dict.__setitem__
     __delattr__ = dict.__delitem__
 
 
-class StandardScaler():
+class StandardScaler:
     def __init__(self, mean, std):
         self.mean = mean
         self.std = std
@@ -124,24 +132,26 @@ class StandardScaler():
         return (data * self.std) + self.mean
 
 
-def visual(true, preds=None, name='./pic/test.pdf'):
+def visual(true, preds=None, name="./pic/test.pdf"):
     """
     Results visualization
     """
     plt.figure()
-    plt.plot(true, label='GroundTruth', linewidth=2)
+    plt.plot(true, label="GroundTruth", linewidth=2)
     if preds is not None:
-        plt.plot(preds, label='Prediction', linewidth=2)
+        plt.plot(preds, label="Prediction", linewidth=2)
     plt.legend()
-    plt.savefig(name, bbox_inches='tight')
-        
+    plt.savefig(name, bbox_inches="tight")
+
+
 def decor_time(func):
     def func2(*args, **kw):
         now = time.time()
         y = func(*args, **kw)
         t = time.time() - now
-        print('call <{}>, time={}'.format(func.__name__, t))
+        print("call <{}>, time={}".format(func.__name__, t))
         return y
+
     return func2
 
 
@@ -152,9 +162,18 @@ class AutoCorrelation(nn.Module):
     (2) time delay aggregation
     This block can replace the self-attention family mechanism seamlessly.
     """
-    def __init__(self, mask_flag=True, factor=1, scale=None, attention_dropout=0.1, output_attention=False, wavelet=False):
+
+    def __init__(
+        self,
+        mask_flag=True,
+        factor=1,
+        scale=None,
+        attention_dropout=0.1,
+        output_attention=False,
+        wavelet=False,
+    ):
         super(AutoCorrelation, self).__init__()
-        print('Autocorrelation used !')
+        print("Autocorrelation used !")
         self.factor = factor
         self.scale = scale
         self.mask_flag = mask_flag
@@ -184,8 +203,13 @@ class AutoCorrelation(nn.Module):
         delays_agg = torch.zeros_like(values).float()
         for i in range(top_k):
             pattern = torch.roll(tmp_values, -int(index[i]), -1)
-            delays_agg = delays_agg + pattern * \
-                         (tmp_corr[:, i].unsqueeze(1).unsqueeze(1).unsqueeze(1).repeat(1, head, channel, length))
+            delays_agg = delays_agg + pattern * (
+                tmp_corr[:, i]
+                .unsqueeze(1)
+                .unsqueeze(1)
+                .unsqueeze(1)
+                .repeat(1, head, channel, length)
+            )
         return delays_agg  # size=[B, H, d, S]
 
     def time_delay_agg_inference(self, values, corr):
@@ -198,7 +222,14 @@ class AutoCorrelation(nn.Module):
         channel = values.shape[2]
         length = values.shape[3]
         # index init
-        init_index = torch.arange(length).unsqueeze(0).unsqueeze(0).unsqueeze(0).repeat(batch, head, channel, 1).cuda()
+        init_index = (
+            torch.arange(length)
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .repeat(batch, head, channel, 1)
+            .cuda()
+        )
         # find top k
         top_k = int(self.factor * math.log(length))
         mean_value = torch.mean(torch.mean(corr, dim=1), dim=1)
@@ -210,10 +241,17 @@ class AutoCorrelation(nn.Module):
         tmp_values = values.repeat(1, 1, 1, 2)
         delays_agg = torch.zeros_like(values).float()
         for i in range(top_k):
-            tmp_delay = init_index + delay[:, i].unsqueeze(1).unsqueeze(1).unsqueeze(1).repeat(1, head, channel, length)
+            tmp_delay = init_index + delay[:, i].unsqueeze(1).unsqueeze(1).unsqueeze(
+                1
+            ).repeat(1, head, channel, length)
             pattern = torch.gather(tmp_values, dim=-1, index=tmp_delay)
-            delays_agg = delays_agg + pattern * \
-                         (tmp_corr[:, i].unsqueeze(1).unsqueeze(1).unsqueeze(1).repeat(1, head, channel, length))
+            delays_agg = delays_agg + pattern * (
+                tmp_corr[:, i]
+                .unsqueeze(1)
+                .unsqueeze(1)
+                .unsqueeze(1)
+                .repeat(1, head, channel, length)
+            )
         return delays_agg
 
     def time_delay_agg_full(self, values, corr):
@@ -225,7 +263,14 @@ class AutoCorrelation(nn.Module):
         channel = values.shape[2]
         length = values.shape[3]
         # index init
-        init_index = torch.arange(length).unsqueeze(0).unsqueeze(0).unsqueeze(0).repeat(batch, head, channel, 1).cuda()
+        init_index = (
+            torch.arange(length)
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .repeat(batch, head, channel, 1)
+            .cuda()
+        )
         # find top k
         top_k = int(self.factor * math.log(length))
         weights = torch.topk(corr, top_k, dim=-1)[0]
@@ -245,7 +290,7 @@ class AutoCorrelation(nn.Module):
         B, L, H, E = queries.shape
         _, S, _, D = values.shape
         if L > S:
-            zeros = torch.zeros_like(queries[:, :(L - S), :]).float()
+            zeros = torch.zeros_like(queries[:, : (L - S), :]).float()
             values = torch.cat([values, zeros], dim=1)
             keys = torch.cat([keys, zeros], dim=1)
         else:
@@ -265,22 +310,38 @@ class AutoCorrelation(nn.Module):
                 q_list = []
                 k_list = []
                 for q, k, j in zip(qs, ks, j_list):
-                    q_list += [interpolate(q, scale_factor=j, mode='linear')[:, :, -L:]]
-                    k_list += [interpolate(k, scale_factor=j, mode='linear')[:, :, -L:]]
-                queries = torch.stack([i.reshape([B, H, E, L]) for i in q_list], dim=3).reshape([B, H, -1, L]).permute(0, 3, 1, 2)
-                keys = torch.stack([i.reshape([B, H, E, L]) for i in k_list], dim=3).reshape([B, H, -1, L]).permute(0, 3, 1, 2)
+                    q_list += [interpolate(q, scale_factor=j, mode="linear")[:, :, -L:]]
+                    k_list += [interpolate(k, scale_factor=j, mode="linear")[:, :, -L:]]
+                queries = (
+                    torch.stack([i.reshape([B, H, E, L]) for i in q_list], dim=3)
+                    .reshape([B, H, -1, L])
+                    .permute(0, 3, 1, 2)
+                )
+                keys = (
+                    torch.stack([i.reshape([B, H, E, L]) for i in k_list], dim=3)
+                    .reshape([B, H, -1, L])
+                    .permute(0, 3, 1, 2)
+                )
             else:
                 pass
-            q_fft = torch.fft.rfft(queries.permute(0, 2, 3, 1).contiguous(), dim=-1)  # size=[B, H, E, L]
+            q_fft = torch.fft.rfft(
+                queries.permute(0, 2, 3, 1).contiguous(), dim=-1
+            )  # size=[B, H, E, L]
             k_fft = torch.fft.rfft(keys.permute(0, 2, 3, 1).contiguous(), dim=-1)
             res = q_fft * torch.conj(k_fft)
-            corr = torch.fft.irfft(res, dim=-1) # size=[B, H, E, L]
+            corr = torch.fft.irfft(res, dim=-1)  # size=[B, H, E, L]
 
             # time delay agg
             if self.training:
-                V = self.time_delay_agg_training(values.permute(0, 2, 3, 1).contiguous(), corr).permute(0, 3, 1, 2)  # [B, L, H, E], [B, H, E, L] -> [B, L, H, E]
+                V = self.time_delay_agg_training(
+                    values.permute(0, 2, 3, 1).contiguous(), corr
+                ).permute(
+                    0, 3, 1, 2
+                )  # [B, L, H, E], [B, H, E, L] -> [B, L, H, E]
             else:
-                V = self.time_delay_agg_inference(values.permute(0, 2, 3, 1).contiguous(), corr).permute(0, 3, 1, 2)
+                V = self.time_delay_agg_inference(
+                    values.permute(0, 2, 3, 1).contiguous(), corr
+                ).permute(0, 3, 1, 2)
         else:
             V_list = []
             queries = queries.reshape([B, L, -1])
@@ -301,12 +362,16 @@ class AutoCorrelation(nn.Module):
                 res = q_fft * torch.conj(k_fft)
                 corr = torch.fft.irfft(res, dim=-1)  # [B, H, E, L]
                 if self.training:
-                    V = self.time_delay_agg_training(v.permute(0, 2, 3, 1).contiguous(), corr).permute(0, 3, 1, 2)
+                    V = self.time_delay_agg_training(
+                        v.permute(0, 2, 3, 1).contiguous(), corr
+                    ).permute(0, 3, 1, 2)
                 else:
-                    V = self.time_delay_agg_inference(v.permute(0, 2, 3, 1).contiguous(), corr).permute(0, 3, 1, 2)
+                    V = self.time_delay_agg_inference(
+                        v.permute(0, 2, 3, 1).contiguous(), corr
+                    ).permute(0, 3, 1, 2)
                 V_list += [V]
-            Vl = V_list[-1].reshape([B, -1, H*E]).transpose(1, 2)
-            Vh_list = [i.reshape([B, -1, H*E]).transpose(1, 2) for i in V_list[:-1]]
+            Vl = V_list[-1].reshape([B, -1, H * E]).transpose(1, 2)
+            Vh_list = [i.reshape([B, -1, H * E]).transpose(1, 2) for i in V_list[:-1]]
             V = self.dwt1div((Vl, Vh_list)).reshape([B, H, E, -1]).permute(0, 3, 1, 2)
             # corr = self.dwt1div((V_list[-1], V_list[:-1]))
 
@@ -317,8 +382,7 @@ class AutoCorrelation(nn.Module):
 
 
 class AutoCorrelationLayer(nn.Module):
-    def __init__(self, correlation, d_model, n_heads, d_keys=None,
-                 d_values=None):
+    def __init__(self, correlation, d_model, n_heads, d_keys=None, d_values=None):
         super(AutoCorrelationLayer, self).__init__()
 
         d_keys = d_keys or (d_model // n_heads)
@@ -336,25 +400,22 @@ class AutoCorrelationLayer(nn.Module):
         _, S, _ = keys.shape
         H = self.n_heads
         print(queries.size())
-        print('query proj',self.query_projection(queries).size())
+        print("query proj", self.query_projection(queries).size())
         queries = self.query_projection(queries).view(B, L, H, -1)
         keys = self.key_projection(keys).view(B, S, H, -1)
         values = self.value_projection(values).view(B, S, H, -1)
 
-        out, attn = self.inner_correlation(
-            queries,
-            keys,
-            values,
-            attn_mask
-        )
+        out, attn = self.inner_correlation(queries, keys, values, attn_mask)
 
         out = out.view(B, L, -1)
         return self.out_projection(out), attn
-        
+
+
 class my_Layernorm(nn.Module):
     """
     Special designed layernorm for the seasonal part
     """
+
     def __init__(self, channels):
         super(my_Layernorm, self).__init__()
         self.layernorm = nn.LayerNorm(channels)
@@ -369,6 +430,7 @@ class moving_avg(nn.Module):
     """
     Moving average block to highlight the trend of time series
     """
+
     def __init__(self, kernel_size, stride):
         super(moving_avg, self).__init__()
         self.kernel_size = kernel_size
@@ -376,7 +438,9 @@ class moving_avg(nn.Module):
 
     def forward(self, x):
         # padding on the both ends of time series
-        front = x[:, 0:1, :].repeat(1, self.kernel_size - 1-math.floor((self.kernel_size - 1) // 2), 1)
+        front = x[:, 0:1, :].repeat(
+            1, self.kernel_size - 1 - math.floor((self.kernel_size - 1) // 2), 1
+        )
         end = x[:, -1:, :].repeat(1, math.floor((self.kernel_size - 1) // 2), 1)
         x = torch.cat([front, x, end], dim=1)
         x = self.avg(x.permute(0, 2, 1))
@@ -388,6 +452,7 @@ class series_decomp(nn.Module):
     """
     Series decomposition block
     """
+
     def __init__(self, kernel_size):
         super(series_decomp, self).__init__()
         self.moving_avg = moving_avg(kernel_size, stride=1)
@@ -402,20 +467,23 @@ class series_decomp_multi(nn.Module):
     """
     Series decomposition block
     """
+
     def __init__(self, kernel_size):
         super(series_decomp_multi, self).__init__()
         self.moving_avg = [moving_avg(kernel, stride=1) for kernel in kernel_size]
         self.layer = torch.nn.Linear(1, len(kernel_size))
 
     def forward(self, x):
-        moving_mean=[]
+        moving_mean = []
         for func in self.moving_avg:
             moving_avg = func(x)
             moving_mean.append(moving_avg.unsqueeze(-1))
-        moving_mean=torch.cat(moving_mean,dim=-1)
-        moving_mean = torch.sum(moving_mean*nn.Softmax(-1)(self.layer(x.unsqueeze(-1))),dim=-1)
+        moving_mean = torch.cat(moving_mean, dim=-1)
+        moving_mean = torch.sum(
+            moving_mean * nn.Softmax(-1)(self.layer(x.unsqueeze(-1))), dim=-1
+        )
         res = x - moving_mean
-        return res, moving_mean 
+        return res, moving_mean
 
 
 class FourierDecomp(nn.Module):
@@ -431,12 +499,25 @@ class EncoderLayer(nn.Module):
     """
     Autoformer encoder layer with the progressive decomposition architecture
     """
-    def __init__(self, attention, d_model, d_ff=None, moving_avg=25, dropout=0.1, activation="relu"):
+
+    def __init__(
+        self,
+        attention,
+        d_model,
+        d_ff=None,
+        moving_avg=25,
+        dropout=0.1,
+        activation="relu",
+    ):
         super(EncoderLayer, self).__init__()
         d_ff = d_ff or 4 * d_model
         self.attention = attention
-        self.conv1 = nn.Conv1d(in_channels=d_model, out_channels=d_ff, kernel_size=1, bias=False)
-        self.conv2 = nn.Conv1d(in_channels=d_ff, out_channels=d_model, kernel_size=1, bias=False)
+        self.conv1 = nn.Conv1d(
+            in_channels=d_model, out_channels=d_ff, kernel_size=1, bias=False
+        )
+        self.conv2 = nn.Conv1d(
+            in_channels=d_ff, out_channels=d_model, kernel_size=1, bias=False
+        )
 
         if isinstance(moving_avg, list):
             self.decomp1 = series_decomp_multi(moving_avg)
@@ -449,10 +530,7 @@ class EncoderLayer(nn.Module):
         self.activation = F.relu if activation == "relu" else F.gelu
 
     def forward(self, x, attn_mask=None):
-        new_x, attn = self.attention(
-            x, x, x,
-            attn_mask=attn_mask
-        )
+        new_x, attn = self.attention(x, x, x, attn_mask=attn_mask)
         x = x + self.dropout(new_x)
         x, _ = self.decomp1(x)
         y = x
@@ -466,10 +544,13 @@ class Encoder(nn.Module):
     """
     Autoformer encoder
     """
+
     def __init__(self, attn_layers, conv_layers=None, norm_layer=None):
         super(Encoder, self).__init__()
         self.attn_layers = nn.ModuleList(attn_layers)
-        self.conv_layers = nn.ModuleList(conv_layers) if conv_layers is not None else None
+        self.conv_layers = (
+            nn.ModuleList(conv_layers) if conv_layers is not None else None
+        )
         self.norm = norm_layer
 
     def forward(self, x, attn_mask=None):
@@ -491,18 +572,33 @@ class Encoder(nn.Module):
 
         return x, attns
 
+
 class DecoderLayer(nn.Module):
     """
     Autoformer decoder layer with the progressive decomposition architecture
     """
-    def __init__(self, self_attention, cross_attention, d_model, c_out, d_ff=None,
-                 moving_avg=25, dropout=0.1, activation="relu"):
+
+    def __init__(
+        self,
+        self_attention,
+        cross_attention,
+        d_model,
+        c_out,
+        d_ff=None,
+        moving_avg=25,
+        dropout=0.1,
+        activation="relu",
+    ):
         super(DecoderLayer, self).__init__()
         d_ff = d_ff or 4 * d_model
         self.self_attention = self_attention
         self.cross_attention = cross_attention
-        self.conv1 = nn.Conv1d(in_channels=d_model, out_channels=d_ff, kernel_size=1, bias=False)
-        self.conv2 = nn.Conv1d(in_channels=d_ff, out_channels=d_model, kernel_size=1, bias=False)
+        self.conv1 = nn.Conv1d(
+            in_channels=d_model, out_channels=d_ff, kernel_size=1, bias=False
+        )
+        self.conv2 = nn.Conv1d(
+            in_channels=d_ff, out_channels=d_model, kernel_size=1, bias=False
+        )
 
         if isinstance(moving_avg, list):
             self.decomp1 = series_decomp_multi(moving_avg)
@@ -514,21 +610,24 @@ class DecoderLayer(nn.Module):
             self.decomp3 = series_decomp(moving_avg)
 
         self.dropout = nn.Dropout(dropout)
-        self.projection = nn.Conv1d(in_channels=d_model, out_channels=c_out, kernel_size=3, stride=1, padding=1,
-                                    padding_mode='circular', bias=False)
+        self.projection = nn.Conv1d(
+            in_channels=d_model,
+            out_channels=c_out,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            padding_mode="circular",
+            bias=False,
+        )
         self.activation = F.relu if activation == "relu" else F.gelu
 
     def forward(self, x, cross, x_mask=None, cross_mask=None):
-        x = x + self.dropout(self.self_attention(
-            x, x, x,
-            attn_mask=x_mask
-        )[0])
+        x = x + self.dropout(self.self_attention(x, x, x, attn_mask=x_mask)[0])
 
         x, trend1 = self.decomp1(x)
-        x = x + self.dropout(self.cross_attention(
-            x, cross, cross,
-            attn_mask=cross_mask
-        )[0])
+        x = x + self.dropout(
+            self.cross_attention(x, cross, cross, attn_mask=cross_mask)[0]
+        )
 
         x, trend2 = self.decomp2(x)
         y = x
@@ -537,7 +636,9 @@ class DecoderLayer(nn.Module):
         x, trend3 = self.decomp3(x + y)
 
         residual_trend = trend1 + trend2 + trend3
-        residual_trend = self.projection(residual_trend.permute(0, 2, 1)).transpose(1, 2)
+        residual_trend = self.projection(residual_trend.permute(0, 2, 1)).transpose(
+            1, 2
+        )
         return x, residual_trend
 
 
@@ -545,6 +646,7 @@ class Decoder(nn.Module):
     """
     Autoformer encoder
     """
+
     def __init__(self, layers, norm_layer=None, projection=None):
         super(Decoder, self).__init__()
         self.layers = nn.ModuleList(layers)
@@ -562,7 +664,8 @@ class Decoder(nn.Module):
         if self.projection is not None:
             x = self.projection(x)
         return x, trend
-        
+
+
 class PositionalEmbedding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super(PositionalEmbedding, self).__init__()
@@ -571,27 +674,37 @@ class PositionalEmbedding(nn.Module):
         pe.require_grad = False
 
         position = torch.arange(0, max_len).float().unsqueeze(1)
-        div_term = (torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model)).exp()
+        div_term = (
+            torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model)
+        ).exp()
 
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
 
         pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
+        self.register_buffer("pe", pe)
 
     def forward(self, x):
-        return self.pe[:, :x.size(1)]
+        return self.pe[:, : x.size(1)]
 
 
 class TokenEmbedding(nn.Module):
     def __init__(self, c_in, d_model):
         super(TokenEmbedding, self).__init__()
-        padding = 1 if torch.__version__ >= '1.5.0' else 2
-        self.tokenConv = nn.Conv1d(in_channels=c_in, out_channels=d_model,
-                                   kernel_size=3, padding=padding, padding_mode='circular', bias=False)
+        padding = 1 if torch.__version__ >= "1.5.0" else 2
+        self.tokenConv = nn.Conv1d(
+            in_channels=c_in,
+            out_channels=d_model,
+            kernel_size=3,
+            padding=padding,
+            padding_mode="circular",
+            bias=False,
+        )
         for m in self.modules():
             if isinstance(m, nn.Conv1d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='leaky_relu')
+                nn.init.kaiming_normal_(
+                    m.weight, mode="fan_in", nonlinearity="leaky_relu"
+                )
 
     def forward(self, x):
         x = self.tokenConv(x.permute(0, 2, 1)).transpose(1, 2)
@@ -606,7 +719,9 @@ class FixedEmbedding(nn.Module):
         w.require_grad = False
 
         position = torch.arange(0, c_in).float().unsqueeze(1)
-        div_term = (torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model)).exp()
+        div_term = (
+            torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model)
+        ).exp()
 
         w[:, 0::2] = torch.sin(position * div_term)
         w[:, 1::2] = torch.cos(position * div_term)
@@ -619,7 +734,7 @@ class FixedEmbedding(nn.Module):
 
 
 class TemporalEmbedding(nn.Module):
-    def __init__(self, d_model, embed_type='fixed', freq='h'):
+    def __init__(self, d_model, embed_type="fixed", freq="h"):
         super(TemporalEmbedding, self).__init__()
 
         minute_size = 4
@@ -628,8 +743,8 @@ class TemporalEmbedding(nn.Module):
         day_size = 32
         month_size = 13
 
-        Embed = FixedEmbedding if embed_type == 'fixed' else nn.Embedding
-        if freq == 't':
+        Embed = FixedEmbedding if embed_type == "fixed" else nn.Embedding
+        if freq == "t":
             self.minute_embed = Embed(minute_size, d_model)
         self.hour_embed = Embed(hour_size, d_model)
         self.weekday_embed = Embed(weekday_size, d_model)
@@ -639,7 +754,9 @@ class TemporalEmbedding(nn.Module):
     def forward(self, x):
         x = x.long()
 
-        minute_x = self.minute_embed(x[:, :, 4]) if hasattr(self, 'minute_embed') else 0.
+        minute_x = (
+            self.minute_embed(x[:, :, 4]) if hasattr(self, "minute_embed") else 0.0
+        )
         hour_x = self.hour_embed(x[:, :, 3])
         weekday_x = self.weekday_embed(x[:, :, 2])
         day_x = self.day_embed(x[:, :, 1])
@@ -649,10 +766,10 @@ class TemporalEmbedding(nn.Module):
 
 
 class TimeFeatureEmbedding(nn.Module):
-    def __init__(self, d_model, embed_type='timeF', freq='h'):
+    def __init__(self, d_model, embed_type="timeF", freq="h"):
         super(TimeFeatureEmbedding, self).__init__()
 
-        freq_map = {'h': 4, 't': 5, 's': 6, 'm': 1, 'a': 1, 'w': 2, 'd': 3, 'b': 3}
+        freq_map = {"h": 4, "t": 5, "s": 6, "m": 1, "a": 1, "w": 2, "d": 3, "b": 3}
         d_inp = freq_map[freq]
         self.embed = nn.Linear(d_inp, d_model, bias=False)
 
@@ -661,22 +778,29 @@ class TimeFeatureEmbedding(nn.Module):
 
 
 class DataEmbedding(nn.Module):
-    def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1):
+    def __init__(self, c_in, d_model, embed_type="fixed", freq="h", dropout=0.1):
         super(DataEmbedding, self).__init__()
 
         self.value_embedding = TokenEmbedding(c_in=c_in, d_model=d_model)
         self.position_embedding = PositionalEmbedding(d_model=d_model)
-        self.temporal_embedding = TemporalEmbedding(d_model=d_model, embed_type=embed_type,
-                                                    freq=freq) if embed_type != 'timeF' else TimeFeatureEmbedding(
-            d_model=d_model, embed_type=embed_type, freq=freq)
+        self.temporal_embedding = (
+            TemporalEmbedding(d_model=d_model, embed_type=embed_type, freq=freq)
+            if embed_type != "timeF"
+            else TimeFeatureEmbedding(d_model=d_model, embed_type=embed_type, freq=freq)
+        )
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x, x_mark):
-        x = self.value_embedding(x) + self.temporal_embedding(x_mark) + self.position_embedding(x)
+        x = (
+            self.value_embedding(x)
+            + self.temporal_embedding(x_mark)
+            + self.position_embedding(x)
+        )
         return self.dropout(x)
 
+
 class DataEmbedding_onlypos(nn.Module):
-    def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1):
+    def __init__(self, c_in, d_model, embed_type="fixed", freq="h", dropout=0.1):
         super(DataEmbedding_onlypos, self).__init__()
 
         self.value_embedding = TokenEmbedding(c_in=c_in, d_model=d_model)
@@ -686,16 +810,19 @@ class DataEmbedding_onlypos(nn.Module):
     def forward(self, x, x_mark):
         x = self.value_embedding(x) + self.position_embedding(x)
         return self.dropout(x)
-    
+
+
 class DataEmbedding_wo_pos(nn.Module):
-    def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1):
+    def __init__(self, c_in, d_model, embed_type="fixed", freq="h", dropout=0.1):
         super(DataEmbedding_wo_pos, self).__init__()
 
         self.value_embedding = TokenEmbedding(c_in=c_in, d_model=d_model)
         self.position_embedding = PositionalEmbedding(d_model=d_model)
-        self.temporal_embedding = TemporalEmbedding(d_model=d_model, embed_type=embed_type,
-                                                    freq=freq) if embed_type != 'timeF' else TimeFeatureEmbedding(
-            d_model=d_model, embed_type=embed_type, freq=freq)
+        self.temporal_embedding = (
+            TemporalEmbedding(d_model=d_model, embed_type=embed_type, freq=freq)
+            if embed_type != "timeF"
+            else TimeFeatureEmbedding(d_model=d_model, embed_type=embed_type, freq=freq)
+        )
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x, x_mark):
@@ -704,15 +831,16 @@ class DataEmbedding_wo_pos(nn.Module):
         # except:
         #     a = 1
         return self.dropout(x)
-        
-def get_frequency_modes(seq_len, modes=64, mode_select_method='random'):
+
+
+def get_frequency_modes(seq_len, modes=64, mode_select_method="random"):
     """
     get modes on frequency domain:
     'random' means sampling randomly;
     'else' means sampling the lowest modes;
     """
-    modes = min(modes, seq_len//2)
-    if mode_select_method == 'random':
+    modes = min(modes, seq_len // 2)
+    if mode_select_method == "random":
         index = list(range(0, seq_len // 2))
         np.random.shuffle(index)
         index = index[:modes]
@@ -724,38 +852,59 @@ def get_frequency_modes(seq_len, modes=64, mode_select_method='random'):
 
 # ########## fourier layer #############
 class FourierBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, seq_len, modes=0, mode_select_method='random'):
+    def __init__(
+        self,
+        n_heads,
+        in_channels,
+        out_channels,
+        seq_len,
+        modes=0,
+        mode_select_method="random",
+    ):
         super(FourierBlock, self).__init__()
-        print('fourier enhanced block used!')
+        print("fourier enhanced block used!")
         """
         1D Fourier block. It performs representation learning on frequency domain, 
         it does FFT, linear transform, and Inverse FFT.    
         """
         # get modes on frequency domain
-        self.index = get_frequency_modes(seq_len, modes=modes, mode_select_method=mode_select_method)
-        print('modes={}, index={}'.format(modes, self.index))
+        self.index = get_frequency_modes(
+            seq_len, modes=modes, mode_select_method=mode_select_method
+        )
+        print("modes={}, index={}".format(modes, self.index))
 
-        self.scale = (1 / (in_channels * out_channels))
-        self.weights1 = nn.Parameter(self.scale * torch.rand(8, in_channels // 8, out_channels // 8, len(self.index), dtype=torch.cfloat))
+        self.scale = 1 / (in_channels * out_channels)
+        self.weights1 = nn.Parameter(
+            self.scale
+            * torch.rand(
+                n_heads,
+                in_channels // n_heads,
+                out_channels // n_heads,
+                len(self.index),
+                dtype=torch.cfloat,
+            )
+        )
 
     # Complex multiplication
     def compl_mul1d(self, input, weights):
         # (batch, in_channel, x ), (in_channel, out_channel, x) -> (batch, out_channel, x)
-        print('input fft', input.size())
-        print('weight fft', weights.size())
-        return torch.einsum("bhi,hio->bho", input, weights)# hio->bho
+        print("input fft", input.size())
+        print("weight fft", weights.size())
+        return torch.einsum("bhi,hio->bho", input, weights)  # hio->bho
 
     def forward(self, q, k, v, mask):
         # size = [B, L, H, E]
         B, L, H, E = q.shape
-        x = q.permute(0, 2, 3, 1)
+        x = q.permute(0, 2, 3, 1)  # [B, H, E, L]
         # Compute Fourier coefficients
         x_ft = torch.fft.rfft(x, dim=-1)
-        print(x_ft.size())
+        print(x_ft.size())  # [B, H, E, L]
         # Perform Fourier neural operations
         out_ft = torch.zeros(B, H, E, L // 2 + 1, device=x.device, dtype=torch.cfloat)
         for wi, i in enumerate(self.index):
-            out_ft[:, :, :, wi] = self.compl_mul1d(x_ft[:, :, :, i], self.weights1[:, :, :, wi])
+            out_ft[:, :, :, wi] = self.compl_mul1d(
+                x_ft[:, :, :, i], self.weights1[:, :, :, wi]
+            )
         # Return to time domain
         x = torch.fft.irfft(out_ft, n=x.size(-1))
         return (x, None)
@@ -763,10 +912,20 @@ class FourierBlock(nn.Module):
 
 # ########## Fourier Cross Former ####################
 class FourierCrossAttention(nn.Module):
-    def __init__(self, in_channels, out_channels, seq_len_q, seq_len_kv, modes=64, mode_select_method='random',
-                 activation='tanh', policy=0):
+    def __init__(
+        self,
+        n_heads,
+        in_channels,
+        out_channels,
+        seq_len_q,
+        seq_len_kv,
+        modes=64,
+        mode_select_method="random",
+        activation="tanh",
+        policy=0,
+    ):
         super(FourierCrossAttention, self).__init__()
-        print(' fourier enhanced cross attention used!')
+        print(" fourier enhanced cross attention used!")
         """
         1D Fourier Cross Attention layer. It does FFT, linear transform, attention mechanism and Inverse FFT.    
         """
@@ -774,20 +933,32 @@ class FourierCrossAttention(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         # get modes for queries and keys (& values) on frequency domain
-        self.index_q = get_frequency_modes(seq_len_q, modes=modes, mode_select_method=mode_select_method)
-        self.index_kv = get_frequency_modes(seq_len_kv, modes=modes, mode_select_method=mode_select_method)
+        self.index_q = get_frequency_modes(
+            seq_len_q, modes=modes, mode_select_method=mode_select_method
+        )
+        self.index_kv = get_frequency_modes(
+            seq_len_kv, modes=modes, mode_select_method=mode_select_method
+        )
 
-        print('modes_q={}, index_q={}'.format(len(self.index_q), self.index_q))
-        print('modes_kv={}, index_kv={}'.format(len(self.index_kv), self.index_kv))
+        print("modes_q={}, index_q={}".format(len(self.index_q), self.index_q))
+        print("modes_kv={}, index_kv={}".format(len(self.index_kv), self.index_kv))
 
-        self.scale = (1 / (in_channels * out_channels))
+        self.scale = 1 / (in_channels * out_channels)
         self.weights1 = nn.Parameter(
-            self.scale * torch.rand(8, in_channels // 8, out_channels // 8, len(self.index_q), dtype=torch.cfloat))
+            self.scale
+            * torch.rand(
+                n_heads,
+                in_channels // n_heads,
+                out_channels // n_heads,
+                len(self.index_q),
+                dtype=torch.cfloat,
+            )
+        )
 
     # Complex multiplication
     def compl_mul1d(self, input, weights):
         # (batch, in_channel, x ), (in_channel, out_channel, x) -> (batch, out_channel, x)
-        return torch.einsum("bhi,hoi->boi", input, weights)#bhi,hio->bho"
+        return torch.einsum("bhi,hoi->boi", input, weights)  # bhi,hio->bho"
 
     def forward(self, q, k, v, mask):
         # size = [B, L, H, E]
@@ -797,42 +968,60 @@ class FourierCrossAttention(nn.Module):
         xv = v.permute(0, 2, 3, 1)
 
         # Compute Fourier coefficients
-        xq_ft_ = torch.zeros(B, H, E, len(self.index_q), device=xq.device, dtype=torch.cfloat)
+        xq_ft_ = torch.zeros(
+            B, H, E, len(self.index_q), device=xq.device, dtype=torch.cfloat
+        )
         xq_ft = torch.fft.rfft(xq, dim=-1)
         for i, j in enumerate(self.index_q):
             xq_ft_[:, :, :, i] = xq_ft[:, :, :, j]
-        xk_ft_ = torch.zeros(B, H, E, len(self.index_kv), device=xq.device, dtype=torch.cfloat)
+        xk_ft_ = torch.zeros(
+            B, H, E, len(self.index_kv), device=xq.device, dtype=torch.cfloat
+        )
         xk_ft = torch.fft.rfft(xk, dim=-1)
         for i, j in enumerate(self.index_kv):
             xk_ft_[:, :, :, i] = xk_ft[:, :, :, j]
 
         # perform attention mechanism on frequency domain
-        xqk_ft = (torch.einsum("bhex,bhey->bhxy", xq_ft_, xk_ft_))
-        if self.activation == 'tanh':
+        xqk_ft = torch.einsum("bhex,bhey->bhxy", xq_ft_, xk_ft_)
+        if self.activation == "tanh":
             xqk_ft = xqk_ft.tanh()
-        elif self.activation == 'softmax':
+        elif self.activation == "softmax":
             xqk_ft = torch.softmax(abs(xqk_ft), dim=-1)
             xqk_ft = torch.complex(xqk_ft, torch.zeros_like(xqk_ft))
         else:
-            raise Exception('{} actiation function is not implemented'.format(self.activation))
+            raise Exception(
+                "{} actiation function is not implemented".format(self.activation)
+            )
         xqkv_ft = torch.einsum("bhxy,bhey->bhex", xqk_ft, xk_ft_)
         xqkvw = torch.einsum("bhex,heox->bhox", xqkv_ft, self.weights1)
         out_ft = torch.zeros(B, H, E, L // 2 + 1, device=xq.device, dtype=torch.cfloat)
         for i, j in enumerate(self.index_q):
             out_ft[:, :, :, j] = xqkvw[:, :, :, i]
         # Return to time domain
-        out = torch.fft.irfft(out_ft / self.in_channels / self.out_channels, n=xq.size(-1))
-        return (out, None)   
-        
+        out = torch.fft.irfft(
+            out_ft / self.in_channels / self.out_channels, n=xq.size(-1)
+        )
+        return (out, None)
+
+
 class MultiWaveletTransform(nn.Module):
     """
     1D multiwavelet block.
     """
 
-    def __init__(self, ich=1, k=8, alpha=16, c=128,
-                 nCZ=1, L=0, base='legendre', attention_dropout=0.1):
+    def __init__(
+        self,
+        ich=1,
+        k=8,
+        alpha=16,
+        c=128,
+        nCZ=1,
+        L=0,
+        base="legendre",
+        attention_dropout=0.1,
+    ):
         super(MultiWaveletTransform, self).__init__()
-        print('base', base)
+        print("base", base)
         self.k = k
         self.c = c
         self.L = L
@@ -846,7 +1035,7 @@ class MultiWaveletTransform(nn.Module):
         B, L, H, E = queries.shape
         _, S, _, D = values.shape
         if L > S:
-            zeros = torch.zeros_like(queries[:, :(L - S), :]).float()
+            zeros = torch.zeros_like(queries[:, : (L - S), :]).float()
             values = torch.cat([values, zeros], dim=1)
             keys = torch.cat([keys, zeros], dim=1)
         else:
@@ -870,15 +1059,25 @@ class MultiWaveletCross(nn.Module):
     1D Multiwavelet Cross Attention layer.
     """
 
-    def __init__(self, in_channels, out_channels, seq_len_q, seq_len_kv, modes, c=64,
-                 k=8, ich=512,
-                 L=0,
-                 base='legendre',
-                 mode_select_method='random',
-                 initializer=None, activation='tanh',
-                 **kwargs):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        seq_len_q,
+        seq_len_kv,
+        modes,
+        c=64,
+        k=8,
+        ich=512,
+        L=0,
+        base="legendre",
+        mode_select_method="random",
+        initializer=None,
+        activation="tanh",
+        **kwargs,
+    ):
         super(MultiWaveletCross, self).__init__()
-        print('base', base)
+        print("base", base)
 
         self.c = c
         self.k = k
@@ -888,35 +1087,55 @@ class MultiWaveletCross(nn.Module):
         G0r = G0 @ PHI0
         H1r = H1 @ PHI1
         G1r = G1 @ PHI1
-        
+
         H0r[np.abs(H0r) < 1e-8] = 0
         H1r[np.abs(H1r) < 1e-8] = 0
         G0r[np.abs(G0r) < 1e-8] = 0
         G1r[np.abs(G1r) < 1e-8] = 0
         self.max_item = 3
 
-        self.attn1 = FourierCrossAttentionW(in_channels=in_channels, out_channels=out_channels, seq_len_q=seq_len_q,
-                                            seq_len_kv=seq_len_kv, modes=modes, activation=activation,
-                                            mode_select_method=mode_select_method)
-        self.attn2 = FourierCrossAttentionW(in_channels=in_channels, out_channels=out_channels, seq_len_q=seq_len_q,
-                                            seq_len_kv=seq_len_kv, modes=modes, activation=activation,
-                                            mode_select_method=mode_select_method)
-        self.attn3 = FourierCrossAttentionW(in_channels=in_channels, out_channels=out_channels, seq_len_q=seq_len_q,
-                                            seq_len_kv=seq_len_kv, modes=modes, activation=activation,
-                                            mode_select_method=mode_select_method)
-        self.attn4 = FourierCrossAttentionW(in_channels=in_channels, out_channels=out_channels, seq_len_q=seq_len_q,
-                                            seq_len_kv=seq_len_kv, modes=modes, activation=activation,
-                                            mode_select_method=mode_select_method)
+        self.attn1 = FourierCrossAttentionW(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            seq_len_q=seq_len_q,
+            seq_len_kv=seq_len_kv,
+            modes=modes,
+            activation=activation,
+            mode_select_method=mode_select_method,
+        )
+        self.attn2 = FourierCrossAttentionW(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            seq_len_q=seq_len_q,
+            seq_len_kv=seq_len_kv,
+            modes=modes,
+            activation=activation,
+            mode_select_method=mode_select_method,
+        )
+        self.attn3 = FourierCrossAttentionW(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            seq_len_q=seq_len_q,
+            seq_len_kv=seq_len_kv,
+            modes=modes,
+            activation=activation,
+            mode_select_method=mode_select_method,
+        )
+        self.attn4 = FourierCrossAttentionW(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            seq_len_q=seq_len_q,
+            seq_len_kv=seq_len_kv,
+            modes=modes,
+            activation=activation,
+            mode_select_method=mode_select_method,
+        )
         self.T0 = nn.Linear(k, k)
-        self.register_buffer('ec_s', torch.Tensor(
-            np.concatenate((H0.T, H1.T), axis=0)))
-        self.register_buffer('ec_d', torch.Tensor(
-            np.concatenate((G0.T, G1.T), axis=0)))
+        self.register_buffer("ec_s", torch.Tensor(np.concatenate((H0.T, H1.T), axis=0)))
+        self.register_buffer("ec_d", torch.Tensor(np.concatenate((G0.T, G1.T), axis=0)))
 
-        self.register_buffer('rc_e', torch.Tensor(
-            np.concatenate((H0r, G0r), axis=0)))
-        self.register_buffer('rc_o', torch.Tensor(
-            np.concatenate((H1r, G1r), axis=0)))
+        self.register_buffer("rc_e", torch.Tensor(np.concatenate((H0r, G0r), axis=0)))
+        self.register_buffer("rc_o", torch.Tensor(np.concatenate((H1r, G1r), axis=0)))
 
         self.Lk = nn.Linear(ich, c * k)
         self.Lq = nn.Linear(ich, c * k)
@@ -939,7 +1158,7 @@ class MultiWaveletCross(nn.Module):
         v = v.view(v.shape[0], v.shape[1], self.c, self.k)
 
         if N > S:
-            zeros = torch.zeros_like(q[:, :(N - S), :]).float()
+            zeros = torch.zeros_like(q[:, : (N - S), :]).float()
             v = torch.cat([v, zeros], dim=1)
             k = torch.cat([k, zeros], dim=1)
         else:
@@ -948,9 +1167,9 @@ class MultiWaveletCross(nn.Module):
 
         ns = math.floor(np.log2(N))
         nl = pow(2, math.ceil(np.log2(N)))
-        extra_q = q[:, 0:nl - N, :, :]
-        extra_k = k[:, 0:nl - N, :, :]
-        extra_v = v[:, 0:nl - N, :, :]
+        extra_q = q[:, 0 : nl - N, :, :]
+        extra_k = k[:, 0 : nl - N, :, :]
+        extra_v = v[:, 0 : nl - N, :, :]
         q = torch.cat([q, extra_q], 1)
         k = torch.cat([k, extra_k], 1)
         v = torch.cat([v, extra_v], 1)
@@ -984,7 +1203,10 @@ class MultiWaveletCross(nn.Module):
             dk, sk = Ud_k[i], Us_k[i]
             dq, sq = Ud_q[i], Us_q[i]
             dv, sv = Ud_v[i], Us_v[i]
-            Ud += [self.attn1(dq[0], dk[0], dv[0], mask)[0] + self.attn2(dq[1], dk[1], dv[1], mask)[0]]
+            Ud += [
+                self.attn1(dq[0], dk[0], dv[0], mask)[0]
+                + self.attn2(dq[1], dk[1], dv[1], mask)[0]
+            ]
             Us += [self.attn3(sq, sk, sv, mask)[0]]
         v = self.attn4(q, k, v, mask)[0]
 
@@ -997,9 +1219,13 @@ class MultiWaveletCross(nn.Module):
         return (v.contiguous(), None)
 
     def wavelet_transform(self, x):
-        xa = torch.cat([x[:, ::2, :, :],
-                        x[:, 1::2, :, :],
-                        ], -1)
+        xa = torch.cat(
+            [
+                x[:, ::2, :, :],
+                x[:, 1::2, :, :],
+            ],
+            -1,
+        )
         d = torch.matmul(xa, self.ec_d)
         s = torch.matmul(xa, self.ec_s)
         return d, s
@@ -1010,18 +1236,25 @@ class MultiWaveletCross(nn.Module):
         x_e = torch.matmul(x, self.rc_e)
         x_o = torch.matmul(x, self.rc_o)
 
-        x = torch.zeros(B, N * 2, c, self.k,
-                        device=x.device)
+        x = torch.zeros(B, N * 2, c, self.k, device=x.device)
         x[..., ::2, :, :] = x_e
         x[..., 1::2, :, :] = x_o
         return x
 
 
 class FourierCrossAttentionW(nn.Module):
-    def __init__(self, in_channels, out_channels, seq_len_q, seq_len_kv, modes=16, activation='tanh',
-                 mode_select_method='random'):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        seq_len_q,
+        seq_len_kv,
+        modes=16,
+        activation="tanh",
+        mode_select_method="random",
+    ):
         super(FourierCrossAttentionW, self).__init__()
-        print('corss fourier correlation used!')
+        print("corss fourier correlation used!")
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.modes1 = modes
@@ -1037,23 +1270,29 @@ class FourierCrossAttentionW(nn.Module):
         self.index_k_v = list(range(0, min(int(xv.shape[3] // 2), self.modes1)))
 
         # Compute Fourier coefficients
-        xq_ft_ = torch.zeros(B, H, E, len(self.index_q), device=xq.device, dtype=torch.cfloat)
+        xq_ft_ = torch.zeros(
+            B, H, E, len(self.index_q), device=xq.device, dtype=torch.cfloat
+        )
         xq_ft = torch.fft.rfft(xq, dim=-1)
         for i, j in enumerate(self.index_q):
             xq_ft_[:, :, :, i] = xq_ft[:, :, :, j]
 
-        xk_ft_ = torch.zeros(B, H, E, len(self.index_k_v), device=xq.device, dtype=torch.cfloat)
+        xk_ft_ = torch.zeros(
+            B, H, E, len(self.index_k_v), device=xq.device, dtype=torch.cfloat
+        )
         xk_ft = torch.fft.rfft(xk, dim=-1)
         for i, j in enumerate(self.index_k_v):
             xk_ft_[:, :, :, i] = xk_ft[:, :, :, j]
-        xqk_ft = (torch.einsum("bhex,bhey->bhxy", xq_ft_, xk_ft_))
-        if self.activation == 'tanh':
+        xqk_ft = torch.einsum("bhex,bhey->bhxy", xq_ft_, xk_ft_)
+        if self.activation == "tanh":
             xqk_ft = xqk_ft.tanh()
-        elif self.activation == 'softmax':
+        elif self.activation == "softmax":
             xqk_ft = torch.softmax(abs(xqk_ft), dim=-1)
             xqk_ft = torch.complex(xqk_ft, torch.zeros_like(xqk_ft))
         else:
-            raise Exception('{} actiation function is not implemented'.format(self.activation))
+            raise Exception(
+                "{} actiation function is not implemented".format(self.activation)
+            )
         xqkv_ft = torch.einsum("bhxy,bhey->bhex", xqk_ft, xk_ft_)
 
         xqkvw = xqkv_ft
@@ -1061,22 +1300,22 @@ class FourierCrossAttentionW(nn.Module):
         for i, j in enumerate(self.index_q):
             out_ft[:, :, :, j] = xqkvw[:, :, :, i]
 
-        out = torch.fft.irfft(out_ft / self.in_channels / self.out_channels, n=xq.size(-1)).permute(0, 3, 2, 1)
+        out = torch.fft.irfft(
+            out_ft / self.in_channels / self.out_channels, n=xq.size(-1)
+        ).permute(0, 3, 2, 1)
         # size = [B, L, H, E]
         return (out, None)
 
 
 class sparseKernelFT1d(nn.Module):
-    def __init__(self,
-                 k, alpha, c=1,
-                 nl=1,
-                 initializer=None,
-                 **kwargs):
+    def __init__(self, k, alpha, c=1, nl=1, initializer=None, **kwargs):
         super(sparseKernelFT1d, self).__init__()
 
         self.modes1 = alpha
-        self.scale = (1 / (c * k * c * k))
-        self.weights1 = nn.Parameter(self.scale * torch.rand(c * k, c * k, self.modes1, dtype=torch.cfloat))
+        self.scale = 1 / (c * k * c * k)
+        self.weights1 = nn.Parameter(
+            self.scale * torch.rand(c * k, c * k, self.modes1, dtype=torch.cfloat)
+        )
         self.weights1.requires_grad = True
         self.k = k
 
@@ -1102,12 +1341,9 @@ class sparseKernelFT1d(nn.Module):
 
 # ##
 class MWT_CZ1d(nn.Module):
-    def __init__(self,
-                 k=3, alpha=64,
-                 L=0, c=1,
-                 base='legendre',
-                 initializer=None,
-                 **kwargs):
+    def __init__(
+        self, k=3, alpha=64, L=0, c=1, base="legendre", initializer=None, **kwargs
+    ):
         super(MWT_CZ1d, self).__init__()
 
         self.k = k
@@ -1130,21 +1366,17 @@ class MWT_CZ1d(nn.Module):
 
         self.T0 = nn.Linear(k, k)
 
-        self.register_buffer('ec_s', torch.Tensor(
-            np.concatenate((H0.T, H1.T), axis=0)))
-        self.register_buffer('ec_d', torch.Tensor(
-            np.concatenate((G0.T, G1.T), axis=0)))
+        self.register_buffer("ec_s", torch.Tensor(np.concatenate((H0.T, H1.T), axis=0)))
+        self.register_buffer("ec_d", torch.Tensor(np.concatenate((G0.T, G1.T), axis=0)))
 
-        self.register_buffer('rc_e', torch.Tensor(
-            np.concatenate((H0r, G0r), axis=0)))
-        self.register_buffer('rc_o', torch.Tensor(
-            np.concatenate((H1r, G1r), axis=0)))
+        self.register_buffer("rc_e", torch.Tensor(np.concatenate((H0r, G0r), axis=0)))
+        self.register_buffer("rc_o", torch.Tensor(np.concatenate((H1r, G1r), axis=0)))
 
     def forward(self, x):
         B, N, c, k = x.shape  # (B, N, k)
         ns = math.floor(np.log2(N))
         nl = pow(2, math.ceil(np.log2(N)))
-        extra_x = x[:, 0:nl - N, :, :]
+        extra_x = x[:, 0 : nl - N, :, :]
         x = torch.cat([x, extra_x], 1)
         Ud = torch.jit.annotate(List[Tensor], [])
         Us = torch.jit.annotate(List[Tensor], [])
@@ -1166,9 +1398,13 @@ class MWT_CZ1d(nn.Module):
         return x
 
     def wavelet_transform(self, x):
-        xa = torch.cat([x[:, ::2, :, :],
-                        x[:, 1::2, :, :],
-                        ], -1)
+        xa = torch.cat(
+            [
+                x[:, ::2, :, :],
+                x[:, 1::2, :, :],
+            ],
+            -1,
+        )
         d = torch.matmul(xa, self.ec_d)
         s = torch.matmul(xa, self.ec_s)
         return d, s
@@ -1180,14 +1416,21 @@ class MWT_CZ1d(nn.Module):
         x_e = torch.matmul(x, self.rc_e)
         x_o = torch.matmul(x, self.rc_o)
 
-        x = torch.zeros(B, N * 2, c, self.k,
-                        device=x.device)
+        x = torch.zeros(B, N * 2, c, self.k, device=x.device)
         x[..., ::2, :, :] = x_e
         x[..., 1::2, :, :] = x_o
         return x
-        
+
+
 class FullAttention(nn.Module):
-    def __init__(self, mask_flag=True, factor=5, scale=None, attention_dropout=0.1, output_attention=False):
+    def __init__(
+        self,
+        mask_flag=True,
+        factor=5,
+        scale=None,
+        attention_dropout=0.1,
+        output_attention=False,
+    ):
         super(FullAttention, self).__init__()
         self.scale = scale
         self.mask_flag = mask_flag
@@ -1197,7 +1440,7 @@ class FullAttention(nn.Module):
     def forward(self, queries, keys, values, attn_mask):
         B, L, H, E = queries.shape
         _, S, _, D = values.shape
-        scale = self.scale or 1. / sqrt(E)
+        scale = self.scale or 1.0 / sqrt(E)
 
         scores = torch.einsum("blhe,bshe->bhls", queries, keys)
 
@@ -1216,96 +1459,6 @@ class FullAttention(nn.Module):
             return (V.contiguous(), None)
 
 
-class ProbAttention(nn.Module):
-    def __init__(self, mask_flag=True, factor=5, scale=None, attention_dropout=0.1, output_attention=False):
-        super(ProbAttention, self).__init__()
-        self.factor = factor
-        self.scale = scale
-        self.mask_flag = mask_flag
-        self.output_attention = output_attention
-        self.dropout = nn.Dropout(attention_dropout)
-
-    def _prob_QK(self, Q, K, sample_k, n_top):  # n_top: c*ln(L_q)
-        # Q [B, H, L, D]
-        B, H, L_K, E = K.shape
-        _, _, L_Q, _ = Q.shape
-
-        # calculate the sampled Q_K
-        K_expand = K.unsqueeze(-3).expand(B, H, L_Q, L_K, E)
-        index_sample = torch.randint(L_K, (L_Q, sample_k))  # real U = U_part(factor*ln(L_k))*L_q
-        K_sample = K_expand[:, :, torch.arange(L_Q).unsqueeze(1), index_sample, :]
-        Q_K_sample = torch.matmul(Q.unsqueeze(-2), K_sample.transpose(-2, -1)).squeeze()
-
-        # find the Top_k query with sparisty measurement
-        M = Q_K_sample.max(-1)[0] - torch.div(Q_K_sample.sum(-1), L_K)
-        M_top = M.topk(n_top, sorted=False)[1]
-
-        # use the reduced Q to calculate Q_K
-        Q_reduce = Q[torch.arange(B)[:, None, None],
-                   torch.arange(H)[None, :, None],
-                   M_top, :]  # factor*ln(L_q)
-        Q_K = torch.matmul(Q_reduce, K.transpose(-2, -1))  # factor*ln(L_q)*L_k
-
-        return Q_K, M_top
-
-    def _get_initial_context(self, V, L_Q):
-        B, H, L_V, D = V.shape
-        if not self.mask_flag:
-            # V_sum = V.sum(dim=-2)
-            V_sum = V.mean(dim=-2)
-            contex = V_sum.unsqueeze(-2).expand(B, H, L_Q, V_sum.shape[-1]).clone()
-        else:  # use mask
-            assert (L_Q == L_V)  # requires that L_Q == L_V, i.e. for self-attention only
-            contex = V.cumsum(dim=-2)
-        return contex
-
-    def _update_context(self, context_in, V, scores, index, L_Q, attn_mask):
-        B, H, L_V, D = V.shape
-
-        if self.mask_flag:
-            attn_mask = ProbMask(B, H, L_Q, index, scores, device=V.device)
-            scores.masked_fill_(attn_mask.mask, -np.inf)
-
-        attn = torch.softmax(scores, dim=-1)  # nn.Softmax(dim=-1)(scores)
-
-        context_in[torch.arange(B)[:, None, None],
-        torch.arange(H)[None, :, None],
-        index, :] = torch.matmul(attn, V).type_as(context_in)
-        if self.output_attention:
-            attns = (torch.ones([B, H, L_V, L_V]) / L_V).type_as(attn).to(attn.device)
-            attns[torch.arange(B)[:, None, None], torch.arange(H)[None, :, None], index, :] = attn
-            return (context_in, attns)
-        else:
-            return (context_in, None)
-
-    def forward(self, queries, keys, values, attn_mask):
-        B, L_Q, H, D = queries.shape
-        _, L_K, _, _ = keys.shape
-
-        queries = queries.transpose(2, 1)
-        keys = keys.transpose(2, 1)
-        values = values.transpose(2, 1)
-
-        U_part = self.factor * np.ceil(np.log(L_K)).astype('int').item()  # c*ln(L_k)
-        u = self.factor * np.ceil(np.log(L_Q)).astype('int').item()  # c*ln(L_q)
-
-        U_part = U_part if U_part < L_K else L_K
-        u = u if u < L_Q else L_Q
-
-        scores_top, index = self._prob_QK(queries, keys, sample_k=U_part, n_top=u)
-
-        # add scale factor
-        scale = self.scale or 1. / sqrt(D)
-        if scale is not None:
-            scores_top = scores_top * scale
-        # get the context
-        context = self._get_initial_context(values, L_Q)
-        # update the context with selected top_k queries
-        context, attn = self._update_context(context, values, scores_top, index, L_Q, attn_mask)
-
-        return context.contiguous(), attn
-
-
 class FEDformerModel(nn.Module):
     @validated()
     def __init__(
@@ -1313,30 +1466,30 @@ class FEDformerModel(nn.Module):
         freq: str,
         prediction_length: int,
         nhead: int,
-        num_encoder_layers: int, 
-        num_decoder_layers: int, 
-        dim_feedforward: int = 16, #dimension of fcn
-        version:str = 'Fourier',#Fourier, Wavelets
-        features: str = 'M',#options:[M, S, MS]; M:multivariate predict multivariate, 'S':univariate predict univariate, MS:multivariate predict univariate' 
-        modes:int = 64,
-        mode_select:str = 'random',
-        base:str = 'legendre',
-        cross_activation:str = 'tanh',
+        num_encoder_layers: int,
+        num_decoder_layers: int,
+        dim_feedforward: int = 16,  # dimension of fcn
+        version: str = "Fourier",  # Fourier, Wavelets
+        features: str = "M",  # options:[M, S, MS]; M:multivariate predict multivariate, 'S':univariate predict univariate, MS:multivariate predict univariate'
+        modes: int = 64,
+        mode_select: str = "random",
+        base: str = "legendre",
+        cross_activation: str = "tanh",
         L: int = 3,
-        #forecasting task
-        context_length: Optional[int] = None,#seq_len : input sequence length
-        label_length: Optional[int] = 48,#start token length
+        # forecasting task
+        context_length: Optional[int] = None,  # seq_len : input sequence length
+        label_length: Optional[int] = 48,  # start token length
         # model argument
-        input_size: int = 1, #encoder input size
+        input_size: int = 1,  # encoder input size
         # dec_in: int = 7, #decoder input size
-        c_out: int = 7, #output size
+        c_out: int = 7,  # output size
         moving_avg: Optional[List[int]] = None,
-        factor:int = 1,
-        scaling:bool = True,
+        factor: int = 1,
+        scaling: bool = True,
         activation: str = "gelu",
         dropout: float = 0.05,
-        embed: str = "timeF",#options:[timeF, fixed, learned]
-        output_attention: bool = True,#whether to output attention in encoder
+        embed: str = "timeF",  # options:[timeF, fixed, learned]
+        output_attention: bool = True,  # whether to output attention in encoder
         num_feat_dynamic_real: int = 0,
         num_feat_static_cat: int = 0,
         num_feat_static_real: int = 0,
@@ -1399,72 +1552,76 @@ class FEDformerModel(nn.Module):
         #                                           dropout)
         # self.dec_embedding = DataEmbedding_wo_pos(dec_in, d_model, embed, freq,
         #                                           dropout)
-        
-        if self.version == 'Wavelets':
+
+        if self.version == "Wavelets":
             encoder_self_att = MultiWaveletTransform(ich=d_model, L=L, base=base)
             decoder_self_att = MultiWaveletTransform(ich=d_model, L=L, base=base)
-            decoder_cross_att = MultiWaveletCross(in_channels=d_model,
-                                                  out_channels=d_model,
-                                                  seq_len_q=self.context_length // 2 + self.prediction_length,
-                                                  seq_len_kv=self.context_length,
-                                                  modes=modes,
-                                                  ich=d_model,
-                                                  base=base,
-                                                  activation=cross_activation)
+            decoder_cross_att = MultiWaveletCross(
+                in_channels=d_model,
+                out_channels=d_model,
+                seq_len_q=self.context_length // 2 + self.prediction_length,
+                seq_len_kv=self.context_length,
+                modes=modes,
+                ich=d_model,
+                base=base,
+                activation=cross_activation,
+            )
         else:
-            encoder_self_att = FourierBlock(in_channels=d_model,
-                                            out_channels=d_model,
-                                            seq_len=self.context_length,
-                                            modes=modes,
-                                            mode_select_method=mode_select)
-            decoder_self_att = FourierBlock(in_channels=d_model,
-                                            out_channels=d_model,
-                                            seq_len=self.context_length//2+self.prediction_length,
-                                            modes=modes,
-                                            mode_select_method=mode_select)
-            decoder_cross_att = FourierCrossAttention(in_channels=d_model,
-                                                      out_channels=d_model,
-                                                      seq_len_q=self.context_length//2+self.prediction_length,
-                                                      seq_len_kv=self.context_length,
-                                                      modes=modes,
-                                                      mode_select_method=mode_select)
+            encoder_self_att = FourierBlock(
+                n_heads=nhead,
+                in_channels=d_model,
+                out_channels=d_model,
+                seq_len=self.context_length,
+                modes=modes,
+                mode_select_method=mode_select,
+            )
+            decoder_self_att = FourierBlock(
+                n_heads=nhead,
+                in_channels=d_model,
+                out_channels=d_model,
+                seq_len=self.context_length // 2 + self.prediction_length,
+                modes=modes,
+                mode_select_method=mode_select,
+            )
+            decoder_cross_att = FourierCrossAttention(
+                n_heads=nhead,
+                in_channels=d_model,
+                out_channels=d_model,
+                seq_len_q=self.context_length // 2 + self.prediction_length,
+                seq_len_kv=self.context_length,
+                modes=modes,
+                mode_select_method=mode_select,
+            )
         # Encoder
-        print('dim_feedforward',self.dim_feedforward)
-        enc_modes = int(min(modes, context_length//2))
-        dec_modes = int(min(modes, (context_length//2+self.prediction_length)//2))
-        print('enc_modes: {}, dec_modes: {}'.format(enc_modes, dec_modes))
-        print('encoder_self_att',encoder_self_att)
+        print("dim_feedforward", self.dim_feedforward)
+        enc_modes = int(min(modes, context_length // 2))
+        dec_modes = int(min(modes, (context_length // 2 + self.prediction_length) // 2))
+        print("enc_modes: {}, dec_modes: {}".format(enc_modes, dec_modes))
+        print("encoder_self_att", encoder_self_att)
         self.encoder = Encoder(
             [
                 EncoderLayer(
-                    AutoCorrelationLayer(
-                        encoder_self_att,
-                        d_model, n_heads = nhead),
-                        
+                    AutoCorrelationLayer(encoder_self_att, d_model, n_heads=nhead),
                     d_model,
-                    d_ff = self.dim_feedforward,
+                    d_ff=self.dim_feedforward,
                     moving_avg=moving_avg,
                     dropout=dropout,
                     activation=activation,
-                ) for l in range(num_encoder_layers)
+                )
+                for l in range(num_encoder_layers)
             ],
-            norm_layer=my_Layernorm(d_model)
+            norm_layer=my_Layernorm(d_model),
         )
+
         # Decoder
-        
         self.decoder = Decoder(
             [
                 DecoderLayer(
-                    AutoCorrelationLayer(
-                        decoder_self_att,
-                        d_model, n_heads = nhead),
-                    AutoCorrelationLayer(
-                        decoder_cross_att,
-                        d_model, n_heads = nhead),
-
+                    AutoCorrelationLayer(decoder_self_att, d_model, n_heads=nhead),
+                    AutoCorrelationLayer(decoder_cross_att, d_model, n_heads=nhead),
                     d_model,
-                    c_out = c_out,
-                    d_ff = self.dim_feedforward,
+                    c_out=c_out,
+                    d_ff=self.dim_feedforward,
                     moving_avg=self.moving_avg,
                     dropout=dropout,
                     activation=activation,
@@ -1472,11 +1629,9 @@ class FEDformerModel(nn.Module):
                 for l in range(num_decoder_layers)
             ],
             norm_layer=my_Layernorm(d_model),
-            projection=nn.Linear(d_model, c_out, bias=True)
+            projection=nn.Linear(d_model, c_out, bias=True),
         )
-        
 
-        
     @property
     def _number_of_features(self) -> int:
         return (
