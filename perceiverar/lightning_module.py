@@ -52,7 +52,7 @@ class PerceiverARLightningModule(pl.LightningModule):
         past_observed_values = batch["past_observed_values"]
         future_observed_values = batch["future_observed_values"]
 
-        params, scale, _, _, _ = self.model.lagged_perciever(
+        params, scale, _, _ = self.model.lagged_perciever(
             feat_static_cat,
             feat_static_real,
             past_time_feat,

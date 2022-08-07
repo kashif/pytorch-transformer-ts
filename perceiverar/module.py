@@ -1,3 +1,4 @@
+import pdb
 from typing import List, Optional, Tuple
 
 import torch
@@ -426,13 +427,7 @@ class PerceiverARModel(nn.Module):
 
         # output
         params = self.param_proj(x)
-        return (
-            params,
-            scale,
-            static_feat,
-            perciever_input[:, : self.context_length - 1, ...],
-            perciever_input[:, self.context_length - 1 :, ...],
-        )
+        return (params, scale, static_feat, perciever_input)
 
     @torch.jit.ignore
     def output_distribution(
@@ -501,7 +496,7 @@ class PerceiverARModel(nn.Module):
         if num_parallel_samples is None:
             num_parallel_samples = self.num_parallel_samples
 
-        params, scale, static_feat, prefix, x = self.lagged_perciever(
+        params, scale, static_feat, prefix = self.lagged_perciever(
             feat_static_cat,
             feat_static_real,
             past_time_feat,
@@ -522,7 +517,7 @@ class PerceiverARModel(nn.Module):
             repeats=num_parallel_samples, dim=0
         )
         repeated_prefix = prefix.repeat_interleave(repeats=num_parallel_samples, dim=0)
-        repeated_x = x.repeat_interleave(repeats=num_parallel_samples, dim=0)
+
         repeated_params = [
             s.repeat_interleave(repeats=num_parallel_samples, dim=0) for s in params
         ]
@@ -544,10 +539,10 @@ class PerceiverARModel(nn.Module):
                 repeated_past_target,
                 scaled_next_sample,
             )
-            perciever_input = torch.cat((next_lags, next_features), dim=-1)
 
-            repeated_x = torch.cat((repeated_x, perciever_input), dim=1)
-            x = repeated_x
+            next_x = torch.cat((next_lags, next_features), dim=-1)
+
+            x = next_x
             for cross_attn, ff in self.perceive_layers:
                 x = cross_attn(x, repeated_prefix) + x
                 x = ff(x) + x
@@ -556,7 +551,8 @@ class PerceiverARModel(nn.Module):
                 x = attn(x) + x
                 x = ff(x) + x
 
-            params = self.param_proj(x[:, -1:])
+            repeated_prefix = torch.cat((repeated_prefix, next_x), dim=1)
+            params = self.param_proj(x)
             distr = self.output_distribution(params, scale=repeated_scale)
             next_sample = distr.sample()
             future_samples.append(next_sample)
