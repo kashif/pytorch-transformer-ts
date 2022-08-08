@@ -552,6 +552,9 @@ class PerceiverARModel(nn.Module):
                 x = ff(x) + x
 
             repeated_prefix = torch.cat((repeated_prefix, next_x), dim=1)
+            repeated_past_target = torch.cat(
+                (repeated_past_target, scaled_next_sample), dim=1
+            )
             params = self.param_proj(x)
             distr = self.output_distribution(params, scale=repeated_scale)
             next_sample = distr.sample()
