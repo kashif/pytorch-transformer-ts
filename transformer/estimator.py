@@ -51,13 +51,13 @@ class TransformerEstimator(PyTorchLightningEstimator):
     @validated()
     def __init__(
         self,
-        freq: str,
         prediction_length: int,
         # Transformer arguments
         nhead: int,
         num_encoder_layers: int,
         num_decoder_layers: int,
         dim_feedforward: int,
+        freq: Optional[str] = None,
         input_size: int = 1,
         activation: str = "gelu",
         dropout: float = 0.1,
@@ -165,19 +165,19 @@ class TransformerEstimator(PyTorchLightningEstimator):
                     target_field=FieldName.TARGET,
                     output_field=FieldName.OBSERVED_VALUES,
                 ),
-                AddTimeFeatures(
-                    start_field=FieldName.START,
-                    target_field=FieldName.TARGET,
-                    output_field=FieldName.FEAT_TIME,
-                    time_features=self.time_features,
-                    pred_length=self.prediction_length,
-                ),
-                AddAgeFeature(
-                    target_field=FieldName.TARGET,
-                    output_field=FieldName.FEAT_AGE,
-                    pred_length=self.prediction_length,
-                    log_scale=True,
-                ),
+                # AddTimeFeatures(
+                #     start_field=FieldName.START,
+                #     target_field=FieldName.TARGET,
+                #     output_field=FieldName.FEAT_TIME,
+                #     time_features=self.time_features,
+                #     pred_length=self.prediction_length,
+                # ),
+                # AddAgeFeature(
+                #     target_field=FieldName.TARGET,
+                #     output_field=FieldName.FEAT_AGE,
+                #     pred_length=self.prediction_length,
+                #     log_scale=True,
+                # ),
                 VstackFeatures(
                     output_field=FieldName.FEAT_TIME,
                     input_fields=[FieldName.FEAT_TIME, FieldName.FEAT_AGE]

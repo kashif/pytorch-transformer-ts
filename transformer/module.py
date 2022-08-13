@@ -13,7 +13,6 @@ class TransformerModel(nn.Module):
     @validated()
     def __init__(
         self,
-        freq: str,
         context_length: int,
         prediction_length: int,
         num_feat_dynamic_real: int,
@@ -32,6 +31,7 @@ class TransformerModel(nn.Module):
         embedding_dimension: Optional[List[int]] = None,
         distr_output: DistributionOutput = StudentTOutput(),
         lags_seq: Optional[List[int]] = None,
+        freq: Optional[str] = None,
         scaling: bool = True,
         num_parallel_samples: int = 100,
     ) -> None:
@@ -78,6 +78,7 @@ class TransformerModel(nn.Module):
             dropout=dropout,
             activation=activation,
             batch_first=True,
+            norm_first=True,
         )
 
         # causal decoder tgt mask
