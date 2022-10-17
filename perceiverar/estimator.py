@@ -131,6 +131,7 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
         prediction_length: int,
         depth: int,
         context_length: Optional[int] = None,
+        input_size: int = 1,
         perceive_depth: int = 1,
         heads: int = 2,
         hidden_size: int = 32,
@@ -163,6 +164,7 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
             default_trainer_kwargs.update(trainer_kwargs)
         super().__init__(trainer_kwargs=default_trainer_kwargs)
 
+        self.input_size = input_size
         self.freq = freq
         self.context_length = (
             context_length if context_length is not None else prediction_length
@@ -341,6 +343,7 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
 
     def create_lightning_module(self) -> PerceiverARLightningModule:
         model = PerceiverARModel(
+            input_size=self.input_size,
             freq=self.freq,
             depth=self.depth,
             context_length=self.context_length,
