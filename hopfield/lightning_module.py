@@ -74,6 +74,6 @@ class HopfieldLightningModule(pl.LightningModule):
         if len(self.model.target_shape) == 0:
             loss_weights = future_observed_values
         else:
-            loss_weights = future_observed_values.min(dim=-1, keepdim=False)
+            loss_weights, _ = future_observed_values.min(dim=-1, keepdim=False)
 
         return weighted_average(loss_values, weights=loss_weights)
