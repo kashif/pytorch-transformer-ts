@@ -474,8 +474,9 @@ class TFTModel(nn.Module):
 
         # embeddings
         embedded_cat = self.embedder(feat_static_cat)
+        log_scale = scale.log() if self.input_size == 1 else scale.squeeze(1).log()
         static_feat = torch.cat(
-            (feat_static_real, scale.log()),
+            (feat_static_real, log_scale),
             dim=1,
         )
 
