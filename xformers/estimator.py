@@ -55,28 +55,26 @@ TRAINING_INPUT_NAMES = PREDICTION_INPUT_NAMES + [
 
 # -
 
+
 class XformerEstimator(PyTorchLightningEstimator):
     @validated()
     def __init__(
         self,
         freq: str,
         prediction_length: int,
-        
         # Xformer arguments
         nhead: int,
         num_encoder_layers: int,
         num_decoder_layers: int,
         hidden_layer_multiplier: int = 1,
-        attention_args = {"name": "scaled_dot_product"},
+        attention_args={"name": "scaled_dot_product"},
         input_size: int = 1,
         activation: str = "gelu",
         residual_norm_style: str = "pre",
         dropout: float = 0.1,
-        use_rotary_embeddings = False,
-        reversible = False,
-
+        use_rotary_embeddings=False,
+        reversible=False,
         context_length: Optional[int] = None,
-
         num_feat_dynamic_real: int = 0,
         num_feat_static_cat: int = 0,
         num_feat_static_real: int = 0,
@@ -97,7 +95,7 @@ class XformerEstimator(PyTorchLightningEstimator):
             **trainer_kwargs,
         }
         super().__init__(trainer_kwargs=trainer_kwargs)
-        
+
         self.freq = freq
         self.context_length = (
             context_length if context_length is not None else prediction_length
@@ -105,7 +103,7 @@ class XformerEstimator(PyTorchLightningEstimator):
         self.prediction_length = prediction_length
         self.distr_output = distr_output
         self.loss = loss
-        
+
         self.input_size = input_size
         self.nhead = nhead
         self.num_encoder_layers = num_encoder_layers
@@ -117,7 +115,7 @@ class XformerEstimator(PyTorchLightningEstimator):
         self.reversible = reversible
         self.hidden_layer_multiplier = hidden_layer_multiplier
         self.residual_norm_style = residual_norm_style
-        
+
         self.num_feat_dynamic_real = num_feat_dynamic_real
         self.num_feat_static_cat = num_feat_static_cat
         self.num_feat_static_real = num_feat_static_real
@@ -140,10 +138,8 @@ class XformerEstimator(PyTorchLightningEstimator):
         self.train_sampler = ExpectedNumInstanceSampler(
             num_instances=1.0, min_future=prediction_length
         )
-        self.validation_sampler = ValidationSplitSampler(
-            min_future=prediction_length
-        )
-        
+        self.validation_sampler = ValidationSplitSampler(min_future=prediction_length)
+
     def create_transformation(self) -> Transformation:
         remove_field_names = []
         if self.num_feat_static_real == 0:
@@ -159,11 +155,7 @@ class XformerEstimator(PyTorchLightningEstimator):
                 else []
             )
             + (
-                [
-                    SetField(
-                        output_field=FieldName.FEAT_STATIC_REAL, value=[0.0]
-                    )
-                ]
+                [SetField(output_field=FieldName.FEAT_STATIC_REAL, value=[0.0])]
                 if not self.num_feat_static_real > 0
                 else []
             )
@@ -211,9 +203,7 @@ class XformerEstimator(PyTorchLightningEstimator):
             ]
         )
 
-    def _create_instance_splitter(
-        self, module: XformerLightningModule, mode: str
-    ):
+    def _create_instance_splitter(self, module: XformerLightningModule, mode: str):
         assert mode in ["training", "validation", "test"]
 
         instance_sampler = {
@@ -284,14 +274,14 @@ class XformerEstimator(PyTorchLightningEstimator):
             batch_size=self.batch_size,
             **kwargs,
         )
-    
+
     def create_predictor(
         self,
         transformation: Transformation,
         module: XformerLightningModule,
     ) -> PyTorchPredictor:
         prediction_splitter = self._create_instance_splitter(module, "test")
-        
+
         return PyTorchPredictor(
             input_transform=transformation + prediction_splitter,
             input_names=PREDICTION_INPUT_NAMES,
@@ -306,12 +296,13 @@ class XformerEstimator(PyTorchLightningEstimator):
             freq=self.freq,
             context_length=self.context_length,
             prediction_length=self.prediction_length,
-            num_feat_dynamic_real=1 + self.num_feat_dynamic_real + len(self.time_features),
+            num_feat_dynamic_real=1
+            + self.num_feat_dynamic_real
+            + len(self.time_features),
             num_feat_static_real=max(1, self.num_feat_static_real),
             num_feat_static_cat=max(1, self.num_feat_static_cat),
             cardinality=self.cardinality,
             embedding_dimension=self.embedding_dimension,
-
             # xformer arguments
             nhead=self.nhead,
             num_encoder_layers=self.num_encoder_layers,
@@ -323,7 +314,6 @@ class XformerEstimator(PyTorchLightningEstimator):
             use_rotary_embeddings=self.use_rotary_embeddings,
             reversible=self.reversible,
             residual_norm_style=self.residual_norm_style,
-
             # univariate input
             input_size=self.input_size,
             distr_output=self.distr_output,
@@ -331,5 +321,5 @@ class XformerEstimator(PyTorchLightningEstimator):
             scaling=self.scaling,
             num_parallel_samples=self.num_parallel_samples,
         )
-        
+
         return XformerLightningModule(model=model, loss=self.loss)

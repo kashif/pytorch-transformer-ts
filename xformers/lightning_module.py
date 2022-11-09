@@ -19,7 +19,7 @@ class XformerLightningModule(pl.LightningModule):
         self.loss = loss
         self.lr = lr
         self.weight_decay = weight_decay
-        
+
     def training_step(self, batch, batch_idx: int):
         """Execute training step"""
         train_loss = self(batch)
@@ -36,9 +36,7 @@ class XformerLightningModule(pl.LightningModule):
         """Execute validation step"""
         with torch.no_grad():
             val_loss = self(batch)
-        self.log(
-            "val_loss", val_loss, on_epoch=True, on_step=False, prog_bar=True
-        )
+        self.log("val_loss", val_loss, on_epoch=True, on_step=False, prog_bar=True)
         return val_loss
 
     def configure_optimizers(self):
@@ -58,7 +56,7 @@ class XformerLightningModule(pl.LightningModule):
         future_target = batch["future_target"]
         past_observed_values = batch["past_observed_values"]
         future_observed_values = batch["future_observed_values"]
-        
+
         transformer_inputs, scale, _ = self.model.create_network_inputs(
             feat_static_cat,
             feat_static_real,
@@ -72,7 +70,7 @@ class XformerLightningModule(pl.LightningModule):
         distr = self.model.output_distribution(params, scale)
 
         loss_values = self.loss(distr, future_target)
-    
+
         if len(self.model.target_shape) == 0:
             loss_weights = future_observed_values
         else:
