@@ -34,6 +34,7 @@ from gluonts.transform.sampler import InstanceSampler
 
 from lightning_module import NSTransformerLightningModule
 from module import NSTransformerModel
+
 # -
 
 PREDICTION_INPUT_NAMES = [
@@ -192,7 +193,9 @@ class NSTransformerEstimator(PyTorchLightningEstimator):
             ]
         )
 
-    def _create_instance_splitter(self, module: NSTransformerLightningModule, mode: str):
+    def _create_instance_splitter(
+        self, module: NSTransformerLightningModule, mode: str
+    ):
         assert mode in ["training", "validation", "test"]
 
         instance_sampler = {

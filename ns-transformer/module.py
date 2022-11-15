@@ -26,9 +26,7 @@ class StdScaler(nn.Module):
     """
 
     @validated()
-    def __init__(
-        self, dim: int, keepdim: bool = False, minimum_scale: float = 1e-10
-    ):
+    def __init__(self, dim: int, keepdim: bool = False, minimum_scale: float = 1e-10):
         super().__init__()
         assert dim > 0, (
             "Cannot compute scale along dim = 0 (batch dimension), please"
@@ -41,30 +39,46 @@ class StdScaler(nn.Module):
     def forward(
         self, data: torch.Tensor, weights: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-       
+
         mean_data = data.mean(self.dim, keepdim=self.keepdim).detach()
-        
-        std_data = torch.sqrt(torch.var(data - mean_data, dim=self.dim, keepdim=self.keepdim, unbiased=False) + self.minimum_scale).detach()
-        
-        return (data - mean_data) / std_data, mean_data if self.keepdim else mean_data.squeeze(dim=self.dim), std_data if self.keepdim else scale.squeeze(
-            dim=self.dim
+
+        std_data = torch.sqrt(
+            torch.var(
+                data - mean_data, dim=self.dim, keepdim=self.keepdim, unbiased=False
+            )
+            + self.minimum_scale
+        ).detach()
+
+        return (
+            (data - mean_data) / std_data,
+            mean_data if self.keepdim else mean_data.squeeze(dim=self.dim),
+            std_data if self.keepdim else scale.squeeze(dim=self.dim),
         )
 
 
 class Projector(nn.Module):
-    '''
+    """
     MLP to learn the De-stationary factors
-    '''
-    def __init__(self, enc_in, seq_len, hidden_dims, hidden_layers, output_dim, kernel_size=3):
+    """
+
+    def __init__(
+        self, enc_in, seq_len, hidden_dims, hidden_layers, output_dim, kernel_size=3
+    ):
         super(Projector, self).__init__()
 
-        self.series_conv = nn.Conv1d(in_channels=seq_len, out_channels=1, kernel_size=kernel_size, 
-                                     padding=1, padding_mode='circular', bias=False)
+        self.series_conv = nn.Conv1d(
+            in_channels=seq_len,
+            out_channels=1,
+            kernel_size=kernel_size,
+            padding=1,
+            padding_mode="circular",
+            bias=False,
+        )
 
         layers = [nn.Linear(2 * enc_in, hidden_dims[0]), nn.ReLU()]
-        for i in range(hidden_layers-1):
-            layers += [nn.Linear(hidden_dims[i], hidden_dims[i+1]), nn.ReLU()]
-        
+        for i in range(hidden_layers - 1):
+            layers += [nn.Linear(hidden_dims[i], hidden_dims[i + 1]), nn.ReLU()]
+
         layers += [nn.Linear(hidden_dims[-1], output_dim, bias=False)]
         self.backbone = nn.Sequential(*layers)
 
@@ -74,82 +88,96 @@ class Projector(nn.Module):
         # y:     B x O
         batch_size = x.shape[0]
 
-        x = self.series_conv(x)          # B x 1 x E
-        x = torch.cat([x, stats], dim=1) # B x 2 x E
-        x = x.view(batch_size, -1) # B x 2E
-        y = self.backbone(x)       # B x O
+        x = self.series_conv(x)  # B x 1 x E
+        x = torch.cat([x, stats], dim=1)  # B x 2 x E
+        x = x.view(batch_size, -1)  # B x 2E
+        y = self.backbone(x)  # B x O
 
         return y
 
 
 class NSMultiheadAttention(nn.MultiheadAttention):
-    def forward(self,
-                query: Tensor,
-                key: Tensor,
-                value: Tensor,
-                tau=None, delta=None,
-                key_padding_mask: Optional[Tensor] = None,
-                need_weights: bool = True,
-                attn_mask: Optional[Tensor] = None,
-                average_attn_weights: bool = True) -> Tuple[Tensor, Optional[Tensor]]:
+    def forward(
+        self,
+        query: Tensor,
+        key: Tensor,
+        value: Tensor,
+        tau=None,
+        delta=None,
+        key_padding_mask: Optional[Tensor] = None,
+        need_weights: bool = True,
+        attn_mask: Optional[Tensor] = None,
+        average_attn_weights: bool = True,
+    ) -> Tuple[Tensor, Optional[Tensor]]:
         r"""
-    Note::
-        Please, refer to :func:`~torch.nn.MultiheadAttention.forward` for more
-        information
-    Args:
-        query, key, value: map a query and a set of key-value pairs to an output.
-            See "Attention Is All You Need" for more details.
-        key_padding_mask: if provided, specified padding elements in the key will
-            be ignored by the attention. When given a binary mask and a value is True,
-            the corresponding value on the attention layer will be ignored. When given
-            a byte mask and a value is non-zero, the corresponding value on the attention
-            layer will be ignored
-        need_weights: output attn_output_weights.
-        attn_mask: 2D or 3D mask that prevents attention to certain positions. A 2D mask will be broadcasted for all
-            the batches while a 3D mask allows to specify a different mask for the entries of each batch.
-    Shape:
-        - Inputs:
-        - query: :math:`(L, N, E)` where L is the target sequence length, N is the batch size, E is
-          the embedding dimension. :math:`(N, L, E)` if ``batch_first`` is ``True``.
-        - key: :math:`(S, N, E)`, where S is the source sequence length, N is the batch size, E is
-          the embedding dimension. :math:`(N, S, E)` if ``batch_first`` is ``True``.
-        - value: :math:`(S, N, E)` where S is the source sequence length, N is the batch size, E is
-          the embedding dimension. :math:`(N, S, E)` if ``batch_first`` is ``True``.
-        - key_padding_mask: :math:`(N, S)` where N is the batch size, S is the source sequence length.
-          If a ByteTensor is provided, the non-zero positions will be ignored while the position
-          with the zero positions will be unchanged. If a BoolTensor is provided, the positions with the
-          value of ``True`` will be ignored while the position with the value of ``False`` will be unchanged.
-        - attn_mask: 2D mask :math:`(L, S)` where L is the target sequence length, S is the source sequence length.
-          3D mask :math:`(N*num_heads, L, S)` where N is the batch size, L is the target sequence length,
-          S is the source sequence length. attn_mask ensure that position i is allowed to attend the unmasked
-          positions. If a ByteTensor is provided, the non-zero positions are not allowed to attend
-          while the zero positions will be unchanged. If a BoolTensor is provided, positions with ``True``
-          is not allowed to attend while ``False`` values will be unchanged. If a FloatTensor
-          is provided, it will be added to the attention weight.
-        - average_attn_weights: If true, indicates that the returned ``attn_weights`` should be averaged across
-          heads. Otherwise, ``attn_weights`` are provided separately per head. Note that this flag only has an
-          effect when ``need_weights=True.``. Default: True (i.e. average weights across heads)
-        - Outputs:
-        - attn_output: :math:`(L, N, E)` where L is the target sequence length, N is the batch size,
-          E is the embedding dimension. :math:`(N, L, E)` if ``batch_first`` is ``True``.
-        - attn_output_weights: If ``average_attn_weights=True``, returns attention weights averaged
-          across heads of shape :math:`(N, L, S)`, where N is the batch size, L is the target sequence length,
-          S is the source sequence length. If ``average_attn_weights=False``, returns attention weights per
-          head of shape :math:`(N, num_heads, L, S)`.
+        Note::
+            Please, refer to :func:`~torch.nn.MultiheadAttention.forward` for more
+            information
+        Args:
+            query, key, value: map a query and a set of key-value pairs to an output.
+                See "Attention Is All You Need" for more details.
+            key_padding_mask: if provided, specified padding elements in the key will
+                be ignored by the attention. When given a binary mask and a value is True,
+                the corresponding value on the attention layer will be ignored. When given
+                a byte mask and a value is non-zero, the corresponding value on the attention
+                layer will be ignored
+            need_weights: output attn_output_weights.
+            attn_mask: 2D or 3D mask that prevents attention to certain positions. A 2D mask will be broadcasted for all
+                the batches while a 3D mask allows to specify a different mask for the entries of each batch.
+        Shape:
+            - Inputs:
+            - query: :math:`(L, N, E)` where L is the target sequence length, N is the batch size, E is
+              the embedding dimension. :math:`(N, L, E)` if ``batch_first`` is ``True``.
+            - key: :math:`(S, N, E)`, where S is the source sequence length, N is the batch size, E is
+              the embedding dimension. :math:`(N, S, E)` if ``batch_first`` is ``True``.
+            - value: :math:`(S, N, E)` where S is the source sequence length, N is the batch size, E is
+              the embedding dimension. :math:`(N, S, E)` if ``batch_first`` is ``True``.
+            - key_padding_mask: :math:`(N, S)` where N is the batch size, S is the source sequence length.
+              If a ByteTensor is provided, the non-zero positions will be ignored while the position
+              with the zero positions will be unchanged. If a BoolTensor is provided, the positions with the
+              value of ``True`` will be ignored while the position with the value of ``False`` will be unchanged.
+            - attn_mask: 2D mask :math:`(L, S)` where L is the target sequence length, S is the source sequence length.
+              3D mask :math:`(N*num_heads, L, S)` where N is the batch size, L is the target sequence length,
+              S is the source sequence length. attn_mask ensure that position i is allowed to attend the unmasked
+              positions. If a ByteTensor is provided, the non-zero positions are not allowed to attend
+              while the zero positions will be unchanged. If a BoolTensor is provided, positions with ``True``
+              is not allowed to attend while ``False`` values will be unchanged. If a FloatTensor
+              is provided, it will be added to the attention weight.
+            - average_attn_weights: If true, indicates that the returned ``attn_weights`` should be averaged across
+              heads. Otherwise, ``attn_weights`` are provided separately per head. Note that this flag only has an
+              effect when ``need_weights=True.``. Default: True (i.e. average weights across heads)
+            - Outputs:
+            - attn_output: :math:`(L, N, E)` where L is the target sequence length, N is the batch size,
+              E is the embedding dimension. :math:`(N, L, E)` if ``batch_first`` is ``True``.
+            - attn_output_weights: If ``average_attn_weights=True``, returns attention weights averaged
+              across heads of shape :math:`(N, L, S)`, where N is the batch size, L is the target sequence length,
+              S is the source sequence length. If ``average_attn_weights=False``, returns attention weights per
+              head of shape :math:`(N, num_heads, L, S)`.
         """
-        return self._forward_impl(query, key, value, key_padding_mask=key_padding_mask,
-                                  need_weights=need_weights, attn_mask=attn_mask, 
-                                  average_attn_weights=average_attn_weights, tau=tau, delta=delta)
+        return self._forward_impl(
+            query,
+            key,
+            value,
+            key_padding_mask=key_padding_mask,
+            need_weights=need_weights,
+            attn_mask=attn_mask,
+            average_attn_weights=average_attn_weights,
+            tau=tau,
+            delta=delta,
+        )
 
-    def _forward_impl(self,
-                      query: Tensor,
-                      key: Tensor,
-                      value: Tensor,
-                      tau=None, delta=None,
-                      key_padding_mask: Optional[Tensor] = None,
-                      need_weights: bool = True,
-                      attn_mask: Optional[Tensor] = None,
-                      average_attn_weights: bool = True) -> Tuple[Tensor, Optional[Tensor]]:
+    def _forward_impl(
+        self,
+        query: Tensor,
+        key: Tensor,
+        value: Tensor,
+        tau=None,
+        delta=None,
+        key_padding_mask: Optional[Tensor] = None,
+        need_weights: bool = True,
+        attn_mask: Optional[Tensor] = None,
+        average_attn_weights: bool = True,
+    ) -> Tuple[Tensor, Optional[Tensor]]:
         # This version will not deal with the static key/value pairs.
         # Keeping it here for future changes.
         #
@@ -167,7 +195,9 @@ class NSMultiheadAttention(nn.MultiheadAttention):
         assert key.size(0) == value.size(0) and key.size(1) == value.size(1)
 
         head_dim = self.embed_dim // self.num_heads
-        assert head_dim * self.num_heads == self.embed_dim, "embed_dim must be divisible by num_heads"
+        assert (
+            head_dim * self.num_heads == self.embed_dim
+        ), "embed_dim must be divisible by num_heads"
         scaling = float(head_dim) ** -0.5
 
         q = self.linear_Q(query)
@@ -177,27 +207,43 @@ class NSMultiheadAttention(nn.MultiheadAttention):
         q = self.q_scaling_product.mul_scalar(q, scaling)
 
         if attn_mask is not None:
-            assert attn_mask.dtype == torch.float32 or attn_mask.dtype == torch.float64 or \
-                attn_mask.dtype == torch.float16 or attn_mask.dtype == torch.uint8 or attn_mask.dtype == torch.bool, \
-                'Only float, byte, and bool types are supported for attn_mask, not {}'.format(attn_mask.dtype)
+            assert (
+                attn_mask.dtype == torch.float32
+                or attn_mask.dtype == torch.float64
+                or attn_mask.dtype == torch.float16
+                or attn_mask.dtype == torch.uint8
+                or attn_mask.dtype == torch.bool
+            ), "Only float, byte, and bool types are supported for attn_mask, not {}".format(
+                attn_mask.dtype
+            )
             if attn_mask.dtype == torch.uint8:
-                warnings.warn("Byte tensor for attn_mask in nn.MultiheadAttention is deprecated. Use bool tensor instead.")
+                warnings.warn(
+                    "Byte tensor for attn_mask in nn.MultiheadAttention is deprecated. Use bool tensor instead."
+                )
                 attn_mask = attn_mask.to(torch.bool)
 
             if attn_mask.dim() == 2:
                 attn_mask = attn_mask.unsqueeze(0)
                 if list(attn_mask.size()) != [1, query.size(0), key.size(0)]:
-                    raise RuntimeError('The size of the 2D attn_mask is not correct.')
+                    raise RuntimeError("The size of the 2D attn_mask is not correct.")
             elif attn_mask.dim() == 3:
-                if list(attn_mask.size()) != [bsz * self.num_heads, query.size(0), key.size(0)]:
-                    raise RuntimeError('The size of the 3D attn_mask is not correct.')
+                if list(attn_mask.size()) != [
+                    bsz * self.num_heads,
+                    query.size(0),
+                    key.size(0),
+                ]:
+                    raise RuntimeError("The size of the 3D attn_mask is not correct.")
             else:
-                raise RuntimeError("attn_mask's dimension {} is not supported".format(attn_mask.dim()))
+                raise RuntimeError(
+                    "attn_mask's dimension {} is not supported".format(attn_mask.dim())
+                )
             # attn_mask's dim is 3 now.
 
         # convert ByteTensor key_padding_mask to bool
         if key_padding_mask is not None and key_padding_mask.dtype == torch.uint8:
-            warnings.warn("Byte tensor for key_padding_mask in nn.MultiheadAttention is deprecated. Use bool tensor instead.")
+            warnings.warn(
+                "Byte tensor for key_padding_mask in nn.MultiheadAttention is deprecated. Use bool tensor instead."
+            )
             key_padding_mask = key_padding_mask.to(torch.bool)
         if self.bias_k is not None and self.bias_v is not None:
             if static_k is None and static_v is None:
@@ -248,11 +294,15 @@ class NSMultiheadAttention(nn.MultiheadAttention):
             src_len += 1
             k_zeros = torch.zeros((k.size(0), 1) + k.size()[2:])
             if k.is_quantized:
-                k_zeros = torch.quantize_per_tensor(k_zeros, k.q_scale(), k.q_zero_point(), k.dtype)
+                k_zeros = torch.quantize_per_tensor(
+                    k_zeros, k.q_scale(), k.q_zero_point(), k.dtype
+                )
             k = torch.cat([k, k_zeros], dim=1)
             v_zeros = torch.zeros((v.size(0), 1) + k.size()[2:])
             if v.is_quantized:
-                v_zeros = torch.quantize_per_tensor(v_zeros, v.q_scale(), v.q_zero_point(), v.dtype)
+                v_zeros = torch.quantize_per_tensor(
+                    v_zeros, v.q_scale(), v.q_zero_point(), v.dtype
+                )
             v = torch.cat([v, v_zeros], dim=1)
 
             if attn_mask is not None:
@@ -265,39 +315,51 @@ class NSMultiheadAttention(nn.MultiheadAttention):
         k = self.dequant_k(k)
         v = self.dequant_v(v)
         attn_output_weights = torch.bmm(q, k.transpose(1, 2))
-        assert list(attn_output_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
+        assert list(attn_output_weights.size()) == [
+            bsz * self.num_heads,
+            tgt_len,
+            src_len,
+        ]
 
         if attn_mask is not None:
             if attn_mask.dtype == torch.bool:
-                attn_output_weights.masked_fill_(attn_mask, float('-inf'))
+                attn_output_weights.masked_fill_(attn_mask, float("-inf"))
             else:
                 attn_output_weights += attn_mask
 
         if key_padding_mask is not None:
-            attn_output_weights = attn_output_weights.view(bsz, self.num_heads, tgt_len, src_len)
+            attn_output_weights = attn_output_weights.view(
+                bsz, self.num_heads, tgt_len, src_len
+            )
             attn_output_weights = attn_output_weights.masked_fill(
                 key_padding_mask.unsqueeze(1).unsqueeze(2),
-                float('-inf'),
+                float("-inf"),
             )
-            attn_output_weights = attn_output_weights.view(bsz * self.num_heads, tgt_len, src_len)
+            attn_output_weights = attn_output_weights.view(
+                bsz * self.num_heads, tgt_len, src_len
+            )
 
-        attn_output_weights = nnF.softmax(
-            attn_output_weights, dim=-1)
-        attn_output_weights = nnF.dropout(attn_output_weights, p=self.dropout, training=self.training)
+        attn_output_weights = nnF.softmax(attn_output_weights, dim=-1)
+        attn_output_weights = nnF.dropout(
+            attn_output_weights, p=self.dropout, training=self.training
+        )
 
-        
-        
         tau = 1.0 if tau is None else tau.unsqueeze(1).unsqueeze(1)  # B x 1 x 1 x 1
-        delta = 0.0 if delta is None else delta.unsqueeze(1).unsqueeze(1)  # B x 1 x 1 x S
-        
-        attn_output = torch.bmm(attn_output_weights, v)* tau + delta
-        
-        
+        delta = (
+            0.0 if delta is None else delta.unsqueeze(1).unsqueeze(1)
+        )  # B x 1 x 1 x S
+
+        attn_output = torch.bmm(attn_output_weights, v) * tau + delta
+
         assert list(attn_output.size()) == [bsz * self.num_heads, tgt_len, head_dim]
         if self.batch_first:
             attn_output = attn_output.view(bsz, tgt_len, self.embed_dim)
         else:
-            attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, self.embed_dim)
+            attn_output = (
+                attn_output.transpose(0, 1)
+                .contiguous()
+                .view(tgt_len, bsz, self.embed_dim)
+            )
 
         # Reentering the quantized zone
         attn_output = self.quant_attn_output(attn_output)
@@ -307,13 +369,14 @@ class NSMultiheadAttention(nn.MultiheadAttention):
 
         if need_weights:
             # average attention weights over heads
-            attn_output_weights = attn_output_weights.view(bsz, self.num_heads, tgt_len, src_len)
+            attn_output_weights = attn_output_weights.view(
+                bsz, self.num_heads, tgt_len, src_len
+            )
             if average_attn_weights:
                 attn_output_weights = attn_output_weights.mean(dim=1)
             return attn_output, attn_output_weights
         else:
             return attn_output, None
-
 
 
 class NSTransformerModel(nn.Module):
@@ -361,26 +424,24 @@ class NSTransformerModel(nn.Module):
             cardinalities=cardinality,
             embedding_dims=self.embedding_dimension,
         )
-        
+
         self.scaler = StdScaler(dim=1, keepdim=True)
-        
 
         # total feature size
         d_model = self.input_size * len(self.lags_seq) + self._number_of_features
-        
-                
+
         self.tau_learner = Projector(
-            enc_in=input_size, 
-            seq_len=context_length, 
-            hidden_dims=[64, 64], 
-            hidden_layers=2, 
+            enc_in=input_size,
+            seq_len=context_length,
+            hidden_dims=[64, 64],
+            hidden_layers=2,
             output_dim=1,
         )
         self.delta_learner = Projector(
-            enc_in=input_size, 
-            seq_len=context_length, 
-            hidden_dims=[64, 64], 
-            hidden_layers=2, 
+            enc_in=input_size,
+            seq_len=context_length,
+            hidden_dims=[64, 64],
+            hidden_layers=2,
             output_dim=context_length,
         )
 
@@ -501,22 +562,21 @@ class NSTransformerModel(nn.Module):
         context = past_target[:, -self.context_length :]
         observed_context = past_observed_values[:, -self.context_length :]
         _, loc, scale = self.scaler(context, observed_context)
-        
-        
-        # B x S x E, B x 1 x E -> B x 1, positive scalar    
+
+        # B x S x E, B x 1 x E -> B x 1, positive scalar
         tau = self.tau_learner(
-            context.unsqueeze(-1) if self.input_size == 1 else context, 
-            scale.unsqueeze(1) if  self.input_size == 1 else scale
-        ).exp() 
-        
-         # B x S x E, B x 1 x E -> B x S
+            context.unsqueeze(-1) if self.input_size == 1 else context,
+            scale.unsqueeze(1) if self.input_size == 1 else scale,
+        ).exp()
+
+        # B x S x E, B x 1 x E -> B x S
         delta = self.delta_learner(
-            context.unsqueeze(-1) if self.input_size == 1 else context, 
-            loc.unsqueeze(1) if self.input_size == 1 else loc
-        )   
+            context.unsqueeze(-1) if self.input_size == 1 else context,
+            loc.unsqueeze(1) if self.input_size == 1 else loc,
+        )
 
         inputs = (
-            (torch.cat((past_target, future_target), dim=1)  - loc )/ scale
+            (torch.cat((past_target, future_target), dim=1) - loc) / scale
             if future_target is not None
             else (past_target - loc) / scale
         )
@@ -538,7 +598,7 @@ class NSTransformerModel(nn.Module):
         embedded_cat = self.embedder(feat_static_cat)
         log_scale = scale.log1p() if self.input_size == 1 else scale.squeeze(1).log1p()
         log_loc = loc.log1p() if self.input_size == 1 else loc.scale.squeeze(1).log1p()
-        
+
         static_feat = torch.cat(
             (embedded_cat, feat_static_real, log_scale, log_loc),
             dim=1,
@@ -601,7 +661,14 @@ class NSTransformerModel(nn.Module):
         if num_parallel_samples is None:
             num_parallel_samples = self.num_parallel_samples
 
-        encoder_inputs, loc, scale, static_feat, tau, delta = self.create_network_inputs(
+        (
+            encoder_inputs,
+            loc,
+            scale,
+            static_feat,
+            tau,
+            delta,
+        ) = self.create_network_inputs(
             feat_static_cat,
             feat_static_real,
             past_time_feat,
@@ -611,18 +678,16 @@ class NSTransformerModel(nn.Module):
 
         enc_out = self.transformer.encoder(encoder_inputs)
 
-        repeated_loc = loc.repeat_interleave(
-            repeats=self.num_parallel_samples, dim=0
-        )
-        
+        repeated_loc = loc.repeat_interleave(repeats=self.num_parallel_samples, dim=0)
+
         repeated_scale = scale.repeat_interleave(
             repeats=self.num_parallel_samples, dim=0
         )
 
         repeated_past_target = (
-            (past_target.repeat_interleave(repeats=self.num_parallel_samples, dim=0) -repeated_loc)
-            / repeated_scale
-        )
+            past_target.repeat_interleave(repeats=self.num_parallel_samples, dim=0)
+            - repeated_loc
+        ) / repeated_scale
 
         expanded_static_feat = static_feat.unsqueeze(1).expand(
             -1, future_time_feat.shape[1], -1
@@ -661,11 +726,14 @@ class NSTransformerModel(nn.Module):
             output = self.transformer.decoder(decoder_input, repeated_enc_out)
 
             params = self.param_proj(output[:, -1:])
-            distr = self.output_distribution(params, loc=repeated_loc, scale=repeated_scale)
+            distr = self.output_distribution(
+                params, loc=repeated_loc, scale=repeated_scale
+            )
             next_sample = distr.sample()
 
             repeated_past_target = torch.cat(
-                (repeated_past_target, (next_sample - repeated_loc) / repeated_scale), dim=1
+                (repeated_past_target, (next_sample - repeated_loc) / repeated_scale),
+                dim=1,
             )
             future_samples.append(next_sample)
 
