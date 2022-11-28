@@ -11,3 +11,5 @@ einops
 opt_einsum
 pykeops
 scipy
+apex
+torchscale
