@@ -1,4 +1,3 @@
-# +
 from typing import Any, Dict, Iterable, List, Optional
 
 import torch
@@ -32,7 +31,6 @@ from gluonts.transform import (
     ValidationSplitSampler,
     VstackFeatures,
 )
-from torchscale.architecture.config import EncoderDecoderConfig
 
 from lightning_module import TorchscaleLightningModule
 from module import TorchscaleModel
@@ -60,7 +58,7 @@ class TorchscaleEstimator(PyTorchLightningEstimator):
         freq: str,
         prediction_length: int,
         # Torchscale arguments
-        enc_dec_config: EncoderDecoderConfig,
+        enc_dec_config: Dict[str, Any],
         input_size: int = 1,
         context_length: Optional[int] = None,
         num_feat_dynamic_real: int = 0,

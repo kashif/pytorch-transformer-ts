@@ -287,7 +287,7 @@ class TorchscaleModel(nn.Module):
         num_feat_static_cat: int,
         cardinality: List[int],
         # torchscale config
-        enc_dec_config: EncoderDecoderConfig,
+        enc_dec_config: Dict[str, Any],
         input_size: int = 1,
         embedding_dimension: Optional[List[int]] = None,
         distr_output: DistributionOutput = StudentTOutput(),
@@ -328,11 +328,12 @@ class TorchscaleModel(nn.Module):
         self.distr_output = distr_output
         self.param_proj = distr_output.get_args_proj(d_model)
 
-        enc_dec_config.encoder_embed_dim = d_model
-        enc_dec_config.decoder_embed_dim = d_model
+        config = EncoderDecoderConfig(**enc_dec_config)
+        config.encoder_embed_dim = d_model
+        config.decoder_embed_dim = d_model
 
-        self.encoder = Encoder(enc_dec_config)
-        self.decoder = Decoder(enc_dec_config)
+        self.encoder = Encoder(config)
+        self.decoder = Decoder(config)
 
         # attention_args["dropout"] = dropout
         # attention_args["causal"] = False
@@ -565,7 +566,7 @@ class TorchscaleModel(nn.Module):
             future_time_feat,
         )
 
-        enc_out = self.encoder(src=encoder_inputs)
+        enc_out = self.encoder(encoder_inputs)
 
         params = self.param_proj(enc_out.transpose(0, 1))  # (B, T, D)
         distr = self.output_distribution(params, trailing_n=1)
@@ -584,7 +585,7 @@ class TorchscaleModel(nn.Module):
             repeats=self.num_parallel_samples, dim=0
         )
         repeated_enc_out = enc_out.repeat_interleave(
-            repeats=self.num_parallel_samples, dim=0
+            repeats=self.num_parallel_samples, dim=1
         )
 
         future_samples = []
