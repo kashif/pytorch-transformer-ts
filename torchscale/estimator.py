@@ -140,7 +140,7 @@ class TorchscaleEstimator(PyTorchLightningEstimator):
                 AsNumpyArray(
                     field=FieldName.FEAT_STATIC_CAT,
                     expected_ndim=1,
-                    dtype=np.long,
+                    dtype=np.int64,
                 ),
                 AsNumpyArray(
                     field=FieldName.FEAT_STATIC_REAL,

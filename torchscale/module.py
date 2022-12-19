@@ -272,7 +272,7 @@ class Decoder(nn.Module):
         if self.layer_norm is not None:
             x = self.layer_norm(x)
 
-        return x.transpose(0, 1)
+        return x.transpose(0, 1)  # (T, B, C) -> (B, T, C)
 
 
 class TorchscaleModel(nn.Module):
@@ -334,66 +334,6 @@ class TorchscaleModel(nn.Module):
 
         self.encoder = Encoder(config)
         self.decoder = Decoder(config)
-
-        # attention_args["dropout"] = dropout
-        # attention_args["causal"] = False
-        # attention_args["seq_len"] = self.context_length
-        # attention_args["num_rules"] = nhead
-        # attention_args["attention_query_mask"] = torch.rand((context_length, 1)) < 0.5
-
-        # xformer_config = [
-        #     # A list of the encoder blocks which constitute the Transformer.
-        #     # Note that a sequence of different encoder blocks can be used
-        #     {
-        #         "reversible": reversible,  # Optionally make these layers reversible, to save memory
-        #         "block_type": "encoder",
-        #         "num_layers": num_encoder_layers,  # Optional, this means that this config will repeat N times
-        #         "dim_model": d_model,
-        #         "residual_norm_style": residual_norm_style,  # Optional, pre/post
-        #         "position_encoding_config": {
-        #             "name": "sine",
-        #             "dim_model": d_model,
-        #         },
-        #         "multi_head_config": {
-        #             "use_rotary_embeddings": use_rotary_embeddings,
-        #             "num_heads": nhead,
-        #             "residual_dropout": dropout,
-        #             "attention": attention_args,
-        #         },
-        #         "feedforward_config": {
-        #             "name": "MLP",
-        #             "dropout": dropout,
-        #             "activation": activation,
-        #             "hidden_layer_multiplier": hidden_layer_multiplier,
-        #             "dim_model": d_model,
-        #         },
-        #     },
-        # ]
-        # config = xFormerConfig(xformer_config)
-        # # xformer encoder
-        # self.encoder = xFormer.from_config(config)
-
-        # # causal vanilla transformer decoder
-        # decoder_layer = nn.TransformerDecoderLayer(
-        #     d_model,
-        #     nhead,
-        #     dim_feedforward=d_model * hidden_layer_multiplier,
-        #     dropout=dropout,
-        #     activation=activation,
-        #     layer_norm_eps=1e-5,
-        #     batch_first=True,
-        #     norm_first=False,
-        # )
-        # decoder_norm = nn.LayerNorm(d_model, eps=1e-5)
-        # self.decoder = nn.TransformerDecoder(
-        #     decoder_layer, num_decoder_layers, decoder_norm
-        # )
-
-        # causal decoder tgt mask for training
-        self.register_buffer(
-            "tgt_mask",
-            nn.Transformer.generate_square_subsequent_mask(prediction_length),
-        )
 
     @property
     def _number_of_features(self) -> int:
