@@ -10,9 +10,7 @@ from gluonts.torch.modules.feature import FeatureEmbedder
 
 class StdScaler(nn.Module):
     """
-    Computes a std scaling  value along
-    dimension ``dim``, and scales the data accordingly.
-
+    Computes a std scaling  value along dimension ``dim``, and scales the data accordingly.
     Parameters
     ----------
     dim
@@ -26,7 +24,9 @@ class StdScaler(nn.Module):
     """
 
     @validated()
-    def __init__(self, dim: int, keepdim: bool = False, minimum_scale: float = 1e-10):
+    def __init__(
+        self, dim: int, keepdim: bool = False, minimum_scale: float = 1e-5
+    ):
         super().__init__()
         assert dim > 0, (
             "Cannot compute scale along dim = 0 (batch dimension), please"
@@ -38,22 +38,22 @@ class StdScaler(nn.Module):
 
     def forward(
         self, data: torch.Tensor, weights: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        assert (
+            data.shape == weights.shape
+        ), "data and weights must have same shape"
+        with torch.no_grad():
+            denominator = weights.sum(self.dim, keepdim=self.keepdim)
+            denominator = denominator.clamp_min(1.0)
+            loc = (data * weights).sum(
+                self.dim, keepdim=self.keepdim
+            ) / denominator
 
-        mean_data = data.mean(self.dim, keepdim=self.keepdim).detach()
-
-        std_data = torch.sqrt(
-            torch.var(
-                data - mean_data, dim=self.dim, keepdim=self.keepdim, unbiased=False
-            )
-            + self.minimum_scale
-        ).detach()
-
-        return (
-            (data - mean_data) / std_data,
-            mean_data if self.keepdim else mean_data.squeeze(dim=self.dim),
-            std_data if self.keepdim else scale.squeeze(dim=self.dim),
-        )
+            variance = (((data - loc) * weights) ** 2).sum(
+                self.dim, keepdim=self.keepdim
+            ) / denominator
+            scale = torch.sqrt(variance + self.minimum_scale)
+            return (data - loc) / scale, loc, scale
 
 
 class Projector(nn.Module):
