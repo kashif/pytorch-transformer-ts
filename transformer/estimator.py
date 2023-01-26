@@ -165,19 +165,19 @@ class TransformerEstimator(PyTorchLightningEstimator):
                     target_field=FieldName.TARGET,
                     output_field=FieldName.OBSERVED_VALUES,
                 ),
-                # AddTimeFeatures(
-                #     start_field=FieldName.START,
-                #     target_field=FieldName.TARGET,
-                #     output_field=FieldName.FEAT_TIME,
-                #     time_features=self.time_features,
-                #     pred_length=self.prediction_length,
-                # ),
-                # AddAgeFeature(
-                #     target_field=FieldName.TARGET,
-                #     output_field=FieldName.FEAT_AGE,
-                #     pred_length=self.prediction_length,
-                #     log_scale=True,
-                # ),
+                AddTimeFeatures(
+                    start_field=FieldName.START,
+                    target_field=FieldName.TARGET,
+                    output_field=FieldName.FEAT_TIME,
+                    time_features=self.time_features,
+                    pred_length=self.prediction_length,
+                ),
+                AddAgeFeature(
+                    target_field=FieldName.TARGET,
+                    output_field=FieldName.FEAT_AGE,
+                    pred_length=self.prediction_length,
+                    log_scale=True,
+                ),
                 VstackFeatures(
                     output_field=FieldName.FEAT_TIME,
                     input_fields=[FieldName.FEAT_TIME, FieldName.FEAT_AGE]
