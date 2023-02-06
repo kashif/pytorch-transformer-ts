@@ -1,0 +1,17 @@
+args:
+  seed: 2023
+  TUH_PATH: '~/scratch/medical/eeg/tuab/'
+  model_name: EEGNet
+  lr: 0.001
+  weight_decay: 0.00
+  drop_prob: 0.25
+  epochs: 50
+  batch_size: 1024
+  num_workers: 1
+  split_mode: 'train'
+  train_grp: 2
+  val_grp: 1
+  n_sub_train: 25
+
+data:
+  type: EEG
