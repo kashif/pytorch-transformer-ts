@@ -1,12 +1,66 @@
 from typing import List, Optional
 
+import numpy as np
+
 import torch
 import torch.nn as nn
+
 from gluonts.core.component import validated
 from gluonts.time_feature import get_lags_for_frequency
 from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.modules.feature import FeatureEmbedder
 from gluonts.torch.modules.scaler import MeanScaler, NOPScaler
+
+
+class ValueEmbedding(nn.Module):
+    def __init__(self, feature_size, d_model):
+        super(ValueEmbedding, self).__init__()
+        self.value_proj = nn.Linear(feature_size, d_model, bias=False)
+
+    def forward(self, x):
+        return self.value_proj(x)
+
+
+class PositionalEmbedding(nn.Embedding):
+    """This module produces sinusoidal positional embeddings of any length."""
+
+    def __init__(self, num_positions: int, embedding_dim: int) -> None:
+        super().__init__(num_positions, embedding_dim)
+        self.weight = self._init_weight(self.weight)
+
+    @staticmethod
+    def _init_weight(out: nn.Parameter) -> nn.Parameter:
+        """
+        Identical to the XLM create_sinusoidal_embeddings except features are not interleaved. The cos features are in
+        the 2nd half of the vector. [dim // 2:]
+        """
+        n_pos, dim = out.shape
+        position_enc = np.array(
+            [
+                [pos / np.power(10000, 2 * (j // 2) / dim) for j in range(dim)]
+                for pos in range(n_pos)
+            ]
+        )
+        out.requires_grad = False  # set early to avoid an error in pytorch-1.8+
+        sentinel = dim // 2 if dim % 2 == 0 else (dim // 2) + 1
+        out[:, 0:sentinel] = torch.FloatTensor(np.sin(position_enc[:, 0::2]))
+        out[:, sentinel:] = torch.FloatTensor(np.cos(position_enc[:, 1::2]))
+        out.detach_()
+        return out
+
+    @torch.no_grad()
+    def forward(
+        self, input_ids_shape: torch.Size, past_key_values_length: int = 0
+    ) -> torch.Tensor:
+        """`input_ids_shape` is expected to be [bsz x seqlen]."""
+        _, seq_len = input_ids_shape[:2]
+        positions = torch.arange(
+            past_key_values_length,
+            past_key_values_length + seq_len,
+            dtype=torch.long,
+            device=self.weight.device,
+        )
+        return super().forward(positions)
 
 
 class TransformerModel(nn.Module):
@@ -20,6 +74,7 @@ class TransformerModel(nn.Module):
         num_feat_static_cat: int,
         cardinality: List[int],
         # transformer arguments
+        d_model: int,
         nhead: int,
         num_encoder_layers: int,
         num_decoder_layers: int,
@@ -61,7 +116,13 @@ class TransformerModel(nn.Module):
             self.scaler = NOPScaler(dim=1, keepdim=True)
 
         # total feature size
-        d_model = self.input_size * len(self.lags_seq) + self._number_of_features
+        feature_size = self.input_size * len(self.lags_seq) + self._number_of_features
+        self.enc_embedding = ValueEmbedding(feature_size=feature_size, d_model=d_model)
+        self.dec_embedding = ValueEmbedding(feature_size=feature_size, d_model=d_model)
+
+        self.pos_embedding = PositionalEmbedding(
+            context_length + prediction_length, d_model
+        )
 
         self.context_length = context_length
         self.prediction_length = prediction_length
@@ -231,12 +292,21 @@ class TransformerModel(nn.Module):
         return transformer_inputs, scale, static_feat
 
     def output_params(self, transformer_inputs):
-        enc_input = transformer_inputs[:, : self.context_length, ...]
-        dec_input = transformer_inputs[:, self.context_length :, ...]
+        enc_input = self.enc_embedding(
+            transformer_inputs[:, : self.context_length, ...]
+        )
+        enc_pos = self.pos_embedding(enc_input.size())
 
-        enc_out = self.transformer.encoder(enc_input)
+        dec_input = self.dec_embedding(
+            transformer_inputs[:, self.context_length :, ...]
+        )
+        dec_pos = self.pos_embedding(
+            dec_input.size(), past_key_values_length=self.context_length
+        )
+
+        enc_out = self.transformer.encoder(enc_input + enc_pos)
         dec_output = self.transformer.decoder(
-            dec_input, enc_out, tgt_mask=self.tgt_mask
+            dec_input + dec_pos, enc_out, tgt_mask=self.tgt_mask
         )
 
         return self.param_proj(dec_output)
@@ -272,8 +342,8 @@ class TransformerModel(nn.Module):
             past_target,
             past_observed_values,
         )
-
-        enc_out = self.transformer.encoder(encoder_inputs)
+        enc_pos = self.pos_embedding(encoder_inputs.size())
+        enc_out = self.transformer.encoder(self.enc_embedding(encoder_inputs) + enc_pos)
 
         repeated_scale = scale.repeat_interleave(
             repeats=self.num_parallel_samples, dim=0
@@ -318,7 +388,12 @@ class TransformerModel(nn.Module):
                 (reshaped_lagged_sequence, repeated_features[:, : k + 1]), dim=-1
             )
 
-            output = self.transformer.decoder(decoder_input, repeated_enc_out)
+            dec_pos = self.pos_embedding(
+                decoder_input.size(), past_key_values_length=self.context_length
+            )
+            output = self.transformer.decoder(
+                self.dec_embedding(decoder_input) + dec_pos, repeated_enc_out
+            )
 
             params = self.param_proj(output[:, -1:])
             distr = self.output_distribution(params, scale=repeated_scale)

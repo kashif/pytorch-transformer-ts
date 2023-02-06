@@ -59,6 +59,7 @@ class TransformerEstimator(PyTorchLightningEstimator):
         dim_feedforward: int,
         freq: Optional[str] = None,
         input_size: int = 1,
+        d_model: int = 32,
         activation: str = "gelu",
         dropout: float = 0.1,
         context_length: Optional[int] = None,
@@ -94,6 +95,7 @@ class TransformerEstimator(PyTorchLightningEstimator):
         self.loss = loss
 
         self.input_size = input_size
+        self.d_model = d_model
         self.nhead = nhead
         self.num_encoder_layers = num_encoder_layers
         self.num_decoder_layers = num_decoder_layers
@@ -291,6 +293,7 @@ class TransformerEstimator(PyTorchLightningEstimator):
             cardinality=self.cardinality,
             embedding_dimension=self.embedding_dimension,
             # transformer arguments
+            d_model=self.d_model,
             nhead=self.nhead,
             num_encoder_layers=self.num_encoder_layers,
             num_decoder_layers=self.num_decoder_layers,
