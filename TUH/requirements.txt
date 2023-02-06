@@ -1,0 +1,10 @@
+Braindecode==0.7
+hydra-core==1.3.1
+matplotlib==3.4.1
+mne==0.23.2
+numpy==1.22.4
+omegaconf>=2.1.1
+pandas==1.4.2
+scikit_learn==1.2.1
+torch==1.11.0
+torchvision==0.12.0
