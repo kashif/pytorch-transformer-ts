@@ -1,6 +1,6 @@
 import sys
 import torch
-sys.path.append('/Users/nhassen/Documents/MilaPprojects/Kashif_TS/pytorch-transformer-ts/')
+sys.path.append('your_path')
 
 from pytorch_lightning.utilities.model_summary import summarize
 from gluonts.evaluation import make_evaluation_predictions, Evaluator
@@ -20,7 +20,7 @@ from gluonts.evaluation import Evaluator
 import time
 import random
 import os
-CHECKPOINT_PATH  ='/Users/nhassen/Documents/MilaPprojects/Kashif_TS/pytorch-transformer-ts/Scaling_inference/'
+CHECKPOINT_PATH  ='you_path'
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
