@@ -1,6 +1,6 @@
 orjson
 torch
-git+https://github.com/awslabs/gluonts
+gluonts>=0.10.0
 pytorch-lightning
 datasets
 xformers

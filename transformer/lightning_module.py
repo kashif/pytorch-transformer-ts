@@ -20,32 +20,8 @@ class TransformerLightningModule(pl.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
 
-    def freq_mask(self, x, y, rate=0.5, dim=1):
-        x_len = x.shape[dim]
-        y_len = y.shape[dim]
-        xy = torch.cat([x, y], dim=dim)
-        xy_f = torch.fft.rfft(xy, dim=dim)
-        m = torch.cuda.FloatTensor(xy_f.shape).uniform_() < rate
-
-        freal = xy_f.real.masked_fill(m, 0)
-        fimag = xy_f.imag.masked_fill(m, 0)
-        xy_f = torch.complex(freal, fimag)
-        xy = torch.fft.irfft(xy_f, dim=dim)
-
-        if x_len + y_len != xy.shape[dim]:
-            xy = torch.cat([x[:, 0:1, ...], xy], 1)
-
-        return torch.split(xy, [x_len, y_len], dim=dim)
-
     def training_step(self, batch, batch_idx: int):
         """Execute training step"""
-
-        past_target, future_target = self.freq_mask(
-            x=batch["past_target"], y=batch["future_target"]
-        )
-        batch["past_target"] = past_target
-        batch["future_target"] = future_target
-
         train_loss = self(batch)
         self.log(
             "train_loss",
