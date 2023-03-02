@@ -31,8 +31,9 @@ class PositionalEmbedding(nn.Embedding):
     @staticmethod
     def _init_weight(out: nn.Parameter) -> nn.Parameter:
         """
-        Identical to the XLM create_sinusoidal_embeddings except features are not interleaved. The cos features are in
-        the 2nd half of the vector. [dim // 2:]
+        Identical to the XLM create_sinusoidal_embeddings except features are not
+        interleaved. The cos features are in the 2nd half of the vector
+        [dim // 2:]
         """
         n_pos, dim = out.shape
         position_enc = np.array(
@@ -240,7 +241,7 @@ class TransformerModel(nn.Module):
         # target
         context = past_target[:, -self.context_length :]
         observed_context = past_observed_values[:, -self.context_length :]
-        _, scale = self.scaler(context, observed_context)
+        _, _, scale = self.scaler(context, observed_context)
 
         inputs = (
             torch.cat((past_target, future_target), dim=1) / scale
@@ -331,7 +332,6 @@ class TransformerModel(nn.Module):
         future_time_feat: torch.Tensor,
         num_parallel_samples: Optional[int] = None,
     ) -> torch.Tensor:
-
         if num_parallel_samples is None:
             num_parallel_samples = self.num_parallel_samples
 
