@@ -86,7 +86,7 @@ from pytorch_lightning import Trainer
 from augmentation import TimeWrap#, RandomGuidedWarp
 #from lightning.pytorch import Trainer, seed_everything
 from deepspeed.profiling.flops_profiler import FlopsProfiler
-
+import timeit
 checkpoint_callback = ModelCheckpoint(filename='epoch{epoch:02d}_step{step:02d}',
           verbose=True,
           save_top_k=1,auto_insert_metric_name=False)
@@ -550,7 +550,10 @@ class TransformerLightningModule(pl.LightningModule):
 #             self.random_guided_warp_fn = RandomGuidedWarp()
 
         # if self.time_warp:
-        self.time_warp_fn = TimeWrap(p=0.5)
+        # self.time_warp_fn = TimeWrap(p=0.5)
+        self.batch_num = 0
+        self.start_time = 0
+        self.end_time = 0
     def freq_mask(self, x, y, rate=0.1, dim=1):
         x_len = x.shape[dim]
         y_len = y.shape[dim]
@@ -579,19 +582,33 @@ class TransformerLightningModule(pl.LightningModule):
         past_target, future_target = self.freq_mask(x=batch["past_target"], y=batch["future_target"])
         batch["past_target"] = past_target
         batch["future_target"] = future_target
-
-
-        train_loss = self(batch)
-    
         if batch_idx == 0:
+            self.start_time  = timeit.default_timer()
+        if batch_idx == 5:
             self.prof = FlopsProfiler(self)
             self.prof.start_profile()
+        train_loss = self(batch)
+        self.batch_num = batch_idx
+        if batch_idx == 5:
+            flops = self.prof.get_total_flops()
+            params = self.prof.get_total_params()
+            duration = self.prof.get_total_duration()
+            print(flops, params)
+            # flops = flops.replace("G", "")
+            # flops = flops.replace(" ", "")
+
+            # self.prof.print_model_profile(profile_step=profile_step)
+            self.prof.end_profile()
+            self.log( "training_flops", float(flops), on_epoch=True, on_step=False, prog_bar=True, sync_dist=True)
+            
+            self.log("throughput", float(4/duration), on_epoch=True, on_step=False, prog_bar=True, sync_dist=True)
+
         self.log(
             "train_loss",
             train_loss,
             on_epoch=True,
             on_step=False,
-            prog_bar=True,
+            prog_bar=True, sync_dist=True
         )
         return train_loss
 
@@ -609,17 +626,13 @@ class TransformerLightningModule(pl.LightningModule):
             "val_loss", val_loss, on_epoch=True, on_step=False, prog_bar=True
         )
         return val_loss
+    
     def on_train_epoch_end(self):
-        flops = self.prof.get_total_flops(as_string=True)
-        params = self.prof.get_total_params(as_string=True)
-        print(flops, params)
-        flops = flops.replace("G", "")
-        flops = flops.replace(" ", "")
+        self.end_time = timeit.default_timer()
+        elapsed = self.end_time - self.start_time
+        self.log("samples_per_sec", float((4*self.batch_num)/elapsed), on_epoch=True, on_step=False, prog_bar=True)
+
         
-        # self.prof.print_model_profile(profile_step=profile_step)
-        self.prof.end_profile()
-        self.log( "training_flops", float(flops), on_epoch=True, on_step=False, prog_bar=True
-        )
     def configure_optimizers(self):
         """Returns the optimizer to use"""
         return torch.optim.Adam(
@@ -958,16 +971,17 @@ params = []
 dim = 3
 prediction_length = 24
 #freq = dataset.metadata.freq
-seed_list = [42]#, 42, 100, 500, 1000, 2000, 3000, 4000, 5000, 6000]
+
+seed_list = [0]#, 42, 100, 500, 1000, 2000, 3000, 4000, 5000, 6000]
 for seed in seed_list:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     all_value = []
     value = []
-    for layer in [2,4,8,12,16, 20, 24, 28,32, 46, 64]:#: [2,4,8 12,16, 20, 24, 28,32, 46, 64, 74, 76]:#, 20, 24, 28, 32, 46, 64, 74, 76]:
+    for layer in [512]:#: [2,4,8 12,16, 20, 24, 28,32, 46, 64, 74, 76]:#, 20, 24, 28, 32, 46, 64, 74, 76, 1048576]:
         #seed_everything(seed)
-        logger = CSVLogger("logs_aug", name="seed"+str(seed)+"layer"+str(layer))
+        logger = CSVLogger("logs_aug", name="gpu_180_seed"+str(seed)+"layer"+str(layer))
         # st = os.stat("checkpoints/")
         # os.chmod("checkpoints/", st.st_mode | 0o222)
         # print(train_ds.device)
@@ -992,9 +1006,9 @@ for seed in seed_list:
 
                 scaling=True,
 
-                batch_size=256,
+                batch_size=4,
                 num_batches_per_epoch=100,
-                trainer_kwargs=dict(max_epochs=5, accelerator='gpu', gpus=6, strategy='ddp',num_nodes = 2, logger=logger, gradient_clip_val=5, callbacks=[checkpoint_callback]))##
+                trainer_kwargs=dict(max_epochs=5, accelerator='gpu', gpus=6, num_nodes = 30, strategy="ddp",logger=logger,  gradient_clip_val=5, callbacks=[checkpoint_callback]))##
         
         predictor = estimator.train(training_data=train_ds, 
         # validation_data=val_ds,
@@ -1002,41 +1016,45 @@ for seed in seed_list:
         # shuffle_buffer_length=1024
         )
 
-        forecast_it, ts_it = make_evaluation_predictions(dataset=test_ds, predictor=predictor)
-        forecasts = list(forecast_it)
-         # if layer == layers[0]:
-        tss = list(ts_it)
+#         forecast_it, ts_it = make_evaluation_predictions(dataset=test_ds, predictor=predictor)
+#         forecasts = list(forecast_it)
+#          # if layer == layers[0]:
+#         tss = list(ts_it)
 
-        evaluator = Evaluator()
-        agg_metrics, _ = evaluator(iter(tss), iter(forecasts))
-        # agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
-        value.append(agg_metrics['mean_wQuantileLoss'])
-        seed_l.append(seed)
-        # dataset_name.append(i)
-        print(layer)
-        all_value.append(agg_metrics)
-        params.append(summarize(estimator.create_lightning_module()).trainable_parameters)
-        df = pd.DataFrame()
-        df['seed'] = [seed]
-        df['crps'] = [agg_metrics['mean_wQuantileLoss']]
-        df['MAPE'] = [agg_metrics['MAPE']]
-        df['params'] = [summarize(estimator.create_lightning_module()).trainable_parameters] 
+#         evaluator = Evaluator()
+#         agg_metrics, _ = evaluator(iter(tss), iter(forecasts))
+#         # agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
+#         value.append(agg_metrics['mean_wQuantileLoss'])
+#         seed_l.append(seed)
+#         # dataset_name.append(i)
+#         print(layer)
+#         all_value.append(agg_metrics)
+#         params.append(summarize(estimator.create_lightning_module()).trainable_parameters)
+#         df = pd.DataFrame()
+#         df['seed'] = [seed]
+#         df['crps'] = [agg_metrics['mean_wQuantileLoss']]
+#         df['MAPE'] = [agg_metrics['MAPE']]
+#         df['params'] = [summarize(estimator.create_lightning_module()).trainable_parameters] 
 
-        df.to_csv('AugSeed'+str(seed)+'_layer'+str(layer)+'.csv', index=False)
-        torch.cuda.empty_cache()
+#         df.to_csv('AugSeed_10'+str(seed)+'_layer'+str(layer)+'.csv', index=False)
+#         torch.cuda.empty_cache()
 
-    df = pd.DataFrame()
-    df['params'] = params
-    df['metrics'] = all_value
-    df['crps'] = value
-    df.to_csv('scaling_data'+str(seed)+'.csv', index = False)
-    print(layer)
-    crps.append(np.mean(value))
+#     df = pd.DataFrame()
+#     df['params'] = params
+#     df['metrics'] = all_value
+#     df['crps'] = value
+#     df.to_csv('scaling_data'+str(seed)+'.csv', index = False)
+#     print(layer)
+#     crps.append(np.mean(value))
 
 # df = pd.DataFrame()
 # df['params'] = params
 # df['crps'] = crps
 # df.to_csv('scaling_elec.csv', index = False)
+
+
+
+
 
 
 
