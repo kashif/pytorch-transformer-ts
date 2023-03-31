@@ -1,0 +1,221 @@
+absl-py @ file:///root/worker/containers/00002quj9pn/tmp/build/80754af9/absl-py_1615411218393/work
+aiohttp @ file:///root/worker/containers/00001dbcduq/tmp/build/80754af9/aiohttp_1646806481725/work
+aiosignal @ file:///tmp/build/80754af9/aiosignal_1637843061372/work
+alembic==1.8.1
+astunparse==1.6.3
+async-timeout @ file:///tmp/build/80754af9/async-timeout_1637851218186/work
+asynctest==0.13.0
+attrs @ file:///opt/conda/conda-bld/attrs_1642510447205/work
+autopage==0.5.1
+av @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/av_1645790887977/work
+axial-positional-embedding==0.2.1
+blinker==1.4
+blis @ file:///root/worker/containers/0000190tuhu/tmp/build/80754af9/cython-blis_1613319375012/work
+boto==2.49.0
+boto3 @ file:///opt/conda/conda-bld/boto3_1643638230110/work
+botocore @ file:///opt/conda/conda-bld/botocore_1642672735464/work
+Bottleneck==1.3.2
+brotlipy==0.7.0
+cached-property @ file:///tmp/build/80754af9/cached-property_1600785575025/work
+cachetools @ file:///tmp/build/80754af9/cachetools_1619597386817/work
+catalogue @ file:///opt/conda/conda-bld/catalogue_1643444368828/work
+certifi==2022.6.15
+cffi @ file:///root/worker/containers/0000302spsn/tmp/build/80754af9/cffi_1625814737803/work
+charset-normalizer==2.1.1
+click @ file:///root/worker/containers/00000cpg5oi/tmp/build/80754af9/click_1646056614596/work
+cliff==3.10.1
+cloudpickle @ file:///Users/ktietz/demo/mc3/conda-bld/cloudpickle_1629142150447/work
+cmaes==0.8.2
+cmake==3.25.2
+cmd2==2.4.2
+colorama @ file:///tmp/build/80754af9/colorama_1607707115595/work
+colorlog==6.7.0
+conda-package-handling @ file:///root/worker/containers/00001aml1ut/tmp/build/80754af9/conda-package-handling_1618262184900/work
+convertdate==2.4.0
+cryptography @ file:///root/worker/containers/00002s604t5/tmp/build/80754af9/cryptography_1633520406057/work
+cycler==0.11.0
+cymem @ file:///root/worker/containers/00003bj77rp/tmp/build/80754af9/cymem_1613319261939/work
+datasets @ file:///home/conda/feedstock_root/build_artifacts/datasets_1634671261557/work
+decorator @ file:///opt/conda/conda-bld/decorator_1643638310831/work
+deepspeed==0.8.1
+dill @ file:///tmp/build/80754af9/dill_1623919422540/work
+dm-tree==0.1.5
+einops==0.6.0
+filelock @ file:///opt/conda/conda-bld/filelock_1647002191454/work
+fire @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/fire_1645824152429/work
+flatbuffers @ file:///home/ktietz/cip/python-flatbuffers_1634039120618/work
+fonttools==4.37.1
+frozenlist @ file:///root/worker/containers/00000a36e6s/tmp/build/80754af9/frozenlist_1637767153315/work
+fsspec @ file:///tmp/build/80754af9/fsspec_1636116461911/work
+future==0.18.2
+fvcore==0.1.5.post20221221
+gast @ file:///Users/ktietz/demo/mc3/conda-bld/gast_1628588903283/work
+gluonts==0.10.4
+google-api-core @ file:///C:/ci/google-api-core-split_1613980333946/work
+google-auth @ file:///tmp/build/80754af9/google-auth_1626320605116/work
+google-auth-oauthlib @ file:///tmp/build/80754af9/google-auth-oauthlib_1617120569401/work
+google-cloud-core @ file:///tmp/build/80754af9/google-cloud-core_1625077425256/work
+google-cloud-storage @ file:///tmp/build/80754af9/google-cloud-storage_1626308236607/work
+google-crc32c @ file:///root/worker/containers/00003dg7ros/tmp/build/80754af9/google-crc32c_1612242958024/work
+google-pasta @ file:///Users/ktietz/demo/mc3/conda-bld/google-pasta_1630577991354/work
+google-resumable-media @ file:///tmp/build/80754af9/google-resumable-media_1624367812531/work
+googleapis-common-protos @ file:///root/worker/containers/000029ht11v/tmp/build/80754af9/googleapis-common-protos-feedstock_1613725137359/work
+gpytorch==1.8.1
+graphviz==0.8.4
+greenlet==1.1.3
+grpcio @ file:///root/worker/containers/0000159binr/tmp/build/80754af9/grpcio_1637590850510/work
+Gymnasium==0.26.3
+gymnasium-notices==0.0.1
+h5py @ file:///root/worker/containers/000022if2h3/tmp/build/80754af9/h5py_1622088476934/work
+hijri-converter==2.2.4
+hjson==3.1.0
+holidays==0.15
+horovod==0.27.0
+huggingface-hub @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/huggingface_hub_1645818449444/work
+idna==3.3
+importlib-metadata @ file:///root/worker/containers/000038e0m5b/tmp/build/80754af9/importlib-metadata_1638542932516/work
+importlib-resources @ file:///tmp/build/80754af9/importlib_resources_1625135880749/work
+iopath==0.1.10
+Jinja2 @ file:///opt/conda/conda-bld/jinja2_1647436528585/work
+jmespath @ file:///Users/ktietz/demo/mc3/conda-bld/jmespath_1630583964805/work
+joblib @ file:///tmp/build/80754af9/joblib_1601912903842/work
+keras @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/keras_1645810082640/work/keras-2.7.0-py2.py3-none-any.whl
+Keras-Preprocessing @ file:///tmp/build/80754af9/keras-preprocessing_1612283640596/work
+korean-lunar-calendar==0.2.1
+langcodes @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/langcodes_1645823257892/work
+libmambapy @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/mamba-split_1645843763244/work/libmambapy
+lightgbm==3.3.2
+lightning-bolts @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/pytorch-lightning-bolts_1645792257141/work
+lightning-utilities==0.6.0.post0
+local-attention==1.7.0
+Mako==1.2.2
+Markdown @ file:///root/worker/containers/00001qt0gub/tmp/build/80754af9/markdown_1605111119310/work
+MarkupSafe @ file:///root/worker/containers/00001eullo0/tmp/build/80754af9/markupsafe_1621528182011/work
+matplotlib==3.5.3
+more-itertools @ file:///tmp/build/80754af9/more-itertools_1637733554872/work
+mpi4py==3.1.4
+mpmath==1.2.1
+multidict @ file:///opt/conda/conda-bld/multidict_1640703759013/work
+multiprocess==0.70.9
+murmurhash @ file:///root/worker/containers/00003fh7thr/tmp/build/80754af9/murmurhash_1607456128334/work
+mxnet==1.6.0
+mypy-extensions==1.0.0
+networkx @ file:///tmp/build/80754af9/networkx_1633639043937/work
+ninja==1.11.1
+numexpr @ file:///root/worker/containers/00003jv0lik/tmp/build/80754af9/numexpr_1640704237831/work
+numpy==1.21.6
+nvidia-dali-cuda110 @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/dali_1645846740551/work/build/dali/python
+nvidia-dali-tf-plugin-cuda110 @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/dali_1645846740551/work/dali_tf_plugin/dali_tf_sdist_build
+oauthlib @ file:///opt/conda/conda-bld/oauthlib_1644332107998/work
+onnx @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/onnx_1645825197718/work
+onnxconverter-common @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/onnxconverter-common_1645825398541/work
+onnxmltools @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/onnxmltools_1645825514050/work
+onnxruntime-gpu @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/onnxruntime_1645844000605/work/onnxruntime_gpu-1.10.0-py3-none-any.whl
+opt-einsum @ file:///tmp/build/80754af9/opt_einsum_1621500238896/work
+optuna==3.0.1
+packaging==21.3
+pandas==1.3.5
+pathy @ file:///tmp/build/80754af9/pathy_1619432881889/work
+patool==1.12
+pbr==5.10.0
+performer-pytorch==1.1.4
+Pillow==9.0.1
+pluggy @ file:///root/worker/containers/000022dm3r4/tmp/build/80754af9/pluggy_1615976317614/work
+portalocker==2.7.0
+portpicker==1.3.1
+preshed @ file:///root/worker/containers/000009u0nec/tmp/build/80754af9/preshed_1621860864420/work
+prettytable==3.4.1
+product-key-memory==0.1.10
+promise @ file:///root/worker/containers/00003h8lajq/tmp/build/80754af9/promise_1614011668981/work
+protobuf==3.19.1
+psutil @ file:///root/worker/containers/00000nakkgb/tmp/build/80754af9/psutil_1612298021683/work
+ptflops==0.6.9
+py @ file:///opt/conda/conda-bld/py_1644396412707/work
+py-cpuinfo==9.0.0
+pyarrow==5.0.0
+pyasn1 @ file:///Users/ktietz/demo/mc3/conda-bld/pyasn1_1629708007385/work
+pyasn1-modules==0.2.8
+pybind11 @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/pybind11-split_1645843683718/work
+pybind11-global @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/pybind11-split_1645843683718/work
+pycosat==0.6.3
+pycparser @ file:///tmp/build/80754af9/pycparser_1636541352034/work
+pydantic @ file:///root/worker/containers/00003cjtisa/tmp/build/80754af9/pydantic_1621546916829/work
+pyDeprecate @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/pydeprecate_1645789127335/work
+PyJWT @ file:///root/worker/containers/00003jfhu6i/tmp/build/80754af9/pyjwt_1619651632714/work
+PyMeeus==0.5.11
+pyOpenSSL @ file:///tmp/build/80754af9/pyopenssl_1635333100036/work
+pyparsing==3.0.9
+pyperclip==1.8.2
+pyre-extensions==0.0.30
+PySocks @ file:///root/worker/containers/00002ha699u/tmp/build/80754af9/pysocks_1594394604255/work
+pytest==5.4.3
+python-dateutil==2.8.2
+pytorch-lightning==1.9.2
+pytz==2021.3
+PyYAML==5.4.1
+reformer-pytorch==1.4.4
+regex @ file:///root/worker/containers/00003pschtu/tmp/build/80754af9/regex_1606772966602/work
+requests==2.28.1
+requests-oauthlib==1.3.0
+rsa @ file:///tmp/build/80754af9/rsa_1614366226499/work
+ruamel-yaml-conda @ file:///root/worker/containers/000036d8b90/tmp/build/80754af9/ruamel_yaml_1616016735527/work
+s3transfer @ file:///tmp/build/80754af9/s3transfer_1626435152308/work
+sacremoses @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/sacremoses_1645818414487/work
+scikit-learn @ file:///root/worker/containers/000011ip0pt/tmp/build/80754af9/scikit-learn_1642617137892/work
+scipy @ file:///root/worker/containers/00000ibsvb0/tmp/build/80754af9/scipy_1641555073389/work
+sentencepiece==0.1.96
+shellingham @ file:///Users/ktietz/demo/mc3/conda-bld/shellingham_1629144685686/work
+six==1.16.0
+skl2onnx @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/skl2onnx_1645825464968/work
+smart-open @ file:///tmp/build/80754af9/smart_open_1602262876581/work
+spacy @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/spacy_1645838317669/work
+spacy-legacy @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/spacy-legacy_1645823346635/work
+spacy-loggers @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/spacy-loggers_1645823316037/work
+SQLAlchemy==1.4.41
+srsly @ file:///root/worker/containers/00003b3pesj/tmp/build/80754af9/srsly_1618696277090/work
+stevedore==3.5.0
+sympy==1.10.1
+tabulate==0.8.9
+tensorboard @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/tensorboard_1645789184180/work/tmp_pip_dir
+tensorboard-data-server @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/tensorboard-data-server_1645789158540/work/tensorboard_data_server-0.6.1-py3-none-any.whl
+tensorboard-plugin-wit==1.6.0
+tensorflow @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/tensorflow-base_1645805776653/work/tensorflow_pkg/tensorflow-2.7.1-cp37-cp37m-linux_ppc64le.whl
+tensorflow-addons @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/tensorflow-addons-ext_1645841031361/work/tensorflow_addons_pkg/tensorflow_addons-0.15.0-cp37-cp37m-linux_ppc64le.whl
+tensorflow-datasets @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/tensorflow-datasets_1645815256010/work
+tensorflow-estimator @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/tensorflow-estimator_1645810172397/work/tensorflow_estimator_pkg/tensorflow_estimator-2.7.0-py2.py3-none-any.whl
+tensorflow-hub @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/tensorflow-hub_1645816015780/work/tensorflow_hub_pkg/tensorflow_hub-0.12.0-py2.py3-none-any.whl
+tensorflow-io-gcs-filesystem @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/tensorflow-io-gcs-filesystem_1645840630009/work/dist/tensorflow_io_gcs_filesystem-0.23.1-cp37-cp37m-linux_ppc64le.whl
+tensorflow-metadata==1.5.0
+tensorflow-probability @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/tensorflow-probability_1645850481580/work/tensorflow_probability_pkg/tensorflow_probability-0.15.0-py2.py3-none-any.whl
+tensorflow-text @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/tensorflow-text_1645850631184/work/tensorflow_text-2.7.3-cp37-cp37m-linux_ppc64le.whl
+termcolor==1.1.0
+tf-model-optimization-nightly @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/tensorflow-model-optimization_1645841783944/work/tensorflow_model_optimization_pkg/tf_model_optimization_nightly-0.7.0.dev20220225-py2.py3-none-any.whl
+tf2onnx @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/tf2onnx_1645841314673/work
+thinc @ file:///root/worker/containers/000011epmq8/tmp/build/80754af9/thinc_1636635305193/work
+threadpoolctl @ file:///Users/ktietz/demo/mc3/conda-bld/threadpoolctl_1629802263681/work
+tokenizers==0.10.3
+toolz==0.12.0
+torch==1.10.2
+torch-dct==0.1.5
+torcheval==0.0.6
+torchmetrics==0.11.1
+torchtext==0.11.0a0+92f4d15
+torchtnt==0.0.7
+torchvision==0.11.3
+tqdm @ file:///opt/conda/conda-bld/tqdm_1647339053476/work
+transformers @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/transformers_1645819055625/work
+typeguard @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/typeguard_1645817711762/work
+typer @ file:///tmp/build/80754af9/typer_1637667998014/work
+typing-inspect==0.8.0
+typing_extensions==4.3.0
+urllib3==1.26.12
+uWSGI @ file:///gpfs/alpine/stf007/world-shared/davismj/open-ce-builds/open-ce-1.5.2/python-env/conda-bld/uwsgi_1645845820899/work
+wasabi @ file:///tmp/build/80754af9/wasabi_1612219178408/work
+wcwidth @ file:///Users/ktietz/demo/mc3/conda-bld/wcwidth_1629357192024/work
+Werkzeug @ file:///opt/conda/conda-bld/werkzeug_1645628268370/work
+wrapt==1.12.1
+xgboost==1.5.2
+xxhash==1.4.3
+yacs==0.1.8
+yarl @ file:///root/worker/containers/000032ee631/tmp/build/80754af9/yarl_1598045032490/work
+zipp @ file:///opt/conda/conda-bld/zipp_1641824620731/work
