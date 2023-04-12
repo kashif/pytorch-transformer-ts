@@ -1,8 +1,8 @@
 #!/bin/bash
 #BSUB -P CSC499
-#BSUB -W 6:00
-#BSUB -nnodes 50
-#BSUB -q batch
+#BSUB -W 23:00
+#BSUB -nnodes 20
+#BSUB -q batch-hm
 #BSUB -J mldl_test_job
 #BSUB -o /gpfs/alpine/csc499/scratch/hstellar/job%J.out
 #BSUB -e /gpfs/alpine/csc499/scratch/hstellar/job%J.out
@@ -24,4 +24,4 @@ echo $MASTER_PORT
 export HF_DATASETS_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 
-jsrun -n50 -bpacked:8 -g6 -a6 -c42 -r1 python scaling_all.py
+jsrun -n20 -bpacked:8 -g6 -a6 -c42 -r1 python scaling.py
