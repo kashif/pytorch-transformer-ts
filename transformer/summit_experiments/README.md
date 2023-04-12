@@ -10,7 +10,7 @@ module load cuda <br>
 module load job-step-viewer <br>
 module load ums <br>
 module load ums-gen119 <br>
-module load nvidia-rapids/cucim_21.08 <br>
+module load open-ce/1.5.2-py37-0 <br>
 
 To make conda environment with requirement.txt <br>
 Make changes in script.bash -> change output filepath and environment name in line 15.
