@@ -79,7 +79,6 @@ class LagGPTEstimator(PyTorchLightningEstimator):
     @validated()
     def __init__(
         self,
-        freq: str,
         prediction_length: int,
         context_length: Optional[int] = None,
         input_size: int = 1,
@@ -107,7 +106,6 @@ class LagGPTEstimator(PyTorchLightningEstimator):
         self.input_size = input_size
         self.prediction_length = prediction_length
         self.context_length = context_length or 10 * prediction_length
-        self.freq = freq
 
         self.n_head = n_head
         self.n_layer = n_layer
@@ -163,7 +161,6 @@ class LagGPTEstimator(PyTorchLightningEstimator):
                 "n_embd": self.n_embd,
                 "n_head": self.n_head,
                 "scaling": self.scaling,
-                "freq": self.freq,
                 "distr_output": self.distr_output,
                 "num_parallel_samples": self.num_parallel_samples,
             },

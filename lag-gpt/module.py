@@ -205,7 +205,6 @@ def apply_rope(x: torch.Tensor, rope_cache: torch.Tensor) -> torch.Tensor:
 class LagGPTModel(nn.Module):
     def __init__(
         self,
-        freq: str,
         prediction_length: int,
         context_length: int,
         scaling: str,
@@ -217,7 +216,19 @@ class LagGPTModel(nn.Module):
         num_parallel_samples: int = 100,
     ) -> None:
         super().__init__()
-        self.lags_seq = get_lags_for_frequency(freq_str=freq, num_default_lags=1)
+        self.lags_seq = sorted(
+            list(
+                set(
+                    get_lags_for_frequency(freq_str="Q", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="M", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="W", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="D", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="H", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="T", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="S", num_default_lags=1)
+                )
+            )
+        )
         config = LTSMConfig(
             n_layer=n_layer,
             n_embd=n_embd,
@@ -271,7 +282,10 @@ class LagGPTModel(nn.Module):
         if future_target is not None:
             future_length = future_target.shape[1]
             input = torch.cat(
-                (scaled_past_target[..., -self.context_length :], (future_target[..., : future_length - 1] - loc) / scale),
+                (
+                    scaled_past_target[..., -self.context_length :],
+                    (future_target[..., : future_length - 1] - loc) / scale,
+                ),
                 dim=-1,
             )
         else:
