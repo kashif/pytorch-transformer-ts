@@ -143,10 +143,10 @@ class RMSNorm(nn.Module):
         # norm_x = x.norm(2, dim=self.dim, keepdim=True)
         # rms_x = norm_x * d_x ** (-1. / 2)
         # x_normed = x / (rms_x + self.eps)
-        norm_x = torch.mean(x * x, dim=self.dim, keepdim=True)
+        # keep RMSNorm in float32
+        norm_x = x.to(torch.float32).pow(2).mean(dim=self.dim, keepdim=True)
         x_normed = x * torch.rsqrt(norm_x + self.eps)
-        return self.scale * x_normed
-
+        return (self.scale * x_normed).type_as(x)
 
 def build_rope_cache(
     seq_len: int,
