@@ -131,3 +131,5 @@ dmypy.json
 # Logs
 logs/
 lightning_logs/
+wandb/
+*.pkl

@@ -1,3 +1,5 @@
+import random
+
 import pytorch_lightning as pl
 import torch
 
@@ -7,6 +9,7 @@ from gluonts.torch.util import take_last, repeat_along_dim
 from gluonts.itertools import prod
 
 from module import LagGPTModel
+from aug import freq_mask, freq_mix
 
 
 class LagGPTLightningModule(pl.LightningModule):
@@ -44,6 +47,7 @@ class LagGPTLightningModule(pl.LightningModule):
         self.loss = loss
         self.lr = lr
         self.weight_decay = weight_decay
+        self.aug_prob = 0.1
 
     # # greedy prediction
     # def forward(self, *args, **kwargs):
@@ -204,6 +208,16 @@ class LagGPTLightningModule(pl.LightningModule):
         """
         Execute training step.
         """
+        if random.random() < self.aug_prob:
+            if random.random() < 0.5:
+                batch["past_target"], batch["future_target"] = freq_mask(
+                    batch["past_target"], batch["future_target"]
+                )
+            else:
+                batch["past_target"], batch["future_target"] = freq_mix(
+                    batch["past_target"], batch["future_target"]
+                )
+
         train_loss = self._compute_loss(batch)
         self.log(
             "train_loss",
