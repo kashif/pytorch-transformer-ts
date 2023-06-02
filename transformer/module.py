@@ -9,7 +9,7 @@ from gluonts.core.component import validated
 from gluonts.time_feature import get_lags_for_frequency
 from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.modules.feature import FeatureEmbedder
-from gluonts.torch.modules.scaler import MeanScaler, NOPScaler
+from gluonts.torch.scaler import MeanScaler, NOPScaler
 
 
 class ValueEmbedding(nn.Module):
@@ -331,7 +331,6 @@ class TransformerModel(nn.Module):
         future_time_feat: torch.Tensor,
         num_parallel_samples: Optional[int] = None,
     ) -> torch.Tensor:
-
         if num_parallel_samples is None:
             num_parallel_samples = self.num_parallel_samples
 
