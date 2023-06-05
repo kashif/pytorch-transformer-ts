@@ -1,9 +1,12 @@
+import random
+
 import pytorch_lightning as pl
 import torch
 from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
 from gluonts.torch.util import weighted_average
 
 from module import LagTransformerModel
+from aug import freq_mask, freq_mix
 
 
 class LagTransformerLightningModule(pl.LightningModule):
@@ -21,16 +24,22 @@ class LagTransformerLightningModule(pl.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
 
+        self.aug_prob = 0.1
+
     def training_step(self, batch, batch_idx: int):
         """Execute training step"""
+        if random.random() < self.aug_prob:
+            if random.random() < 0.5:
+                batch["past_target"], batch["future_target"] = freq_mask(
+                    batch["past_target"], batch["future_target"]
+                )
+            else:
+                batch["past_target"], batch["future_target"] = freq_mix(
+                    batch["past_target"], batch["future_target"]
+                )
+
         train_loss = self(batch)
-        self.log(
-            "train_loss",
-            train_loss,
-            on_epoch=True,
-            on_step=False,
-            prog_bar=True,
-        )
+        self.log("train_loss", train_loss, on_epoch=True, on_step=False, prog_bar=True)
         return train_loss
 
     def validation_step(self, batch, batch_idx: int):
@@ -43,9 +52,7 @@ class LagTransformerLightningModule(pl.LightningModule):
     def configure_optimizers(self):
         """Returns the optimizer to use"""
         return torch.optim.Adam(
-            self.model.parameters(),
-            lr=self.lr,
-            weight_decay=self.weight_decay,
+            self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
 
     def forward(self, batch):
@@ -55,9 +62,7 @@ class LagTransformerLightningModule(pl.LightningModule):
         future_observed_values = batch["future_observed_values"]
 
         transformer_inputs, loc, scale, _ = self.model.create_network_inputs(
-            past_target,
-            past_observed_values,
-            future_target,
+            past_target, past_observed_values, future_target
         )
         params = self.model.output_params(transformer_inputs)
         distr = self.model.output_distribution(params, loc=loc, scale=scale)
