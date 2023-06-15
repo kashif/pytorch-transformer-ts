@@ -40,6 +40,8 @@ class LagGPTLightningModule(pl.LightningModule):
         loss: DistributionLoss = NegativeLogLikelihood(),
         lr: float = 1e-3,
         weight_decay: float = 1e-8,
+        aug_prob: float = 0.1,
+        aug_rate: float = 0.1,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -47,7 +49,8 @@ class LagGPTLightningModule(pl.LightningModule):
         self.loss = loss
         self.lr = lr
         self.weight_decay = weight_decay
-        self.aug_prob = 0.1
+        self.aug_prob = self.aug_prob
+        self.aug_rate = self.aug_rate
 
     # # greedy prediction
     # def forward(self, *args, **kwargs):
@@ -211,11 +214,11 @@ class LagGPTLightningModule(pl.LightningModule):
         if random.random() < self.aug_prob:
             if random.random() < 0.5:
                 batch["past_target"], batch["future_target"] = freq_mask(
-                    batch["past_target"], batch["future_target"]
+                    batch["past_target"], batch["future_target"], rate=self.aug_rate
                 )
             else:
                 batch["past_target"], batch["future_target"] = freq_mix(
-                    batch["past_target"], batch["future_target"]
+                    batch["past_target"], batch["future_target"], rate=self.aug_rate
                 )
 
         train_loss = self._compute_loss(batch)

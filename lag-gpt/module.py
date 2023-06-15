@@ -148,6 +148,7 @@ class RMSNorm(nn.Module):
         x_normed = x * torch.rsqrt(norm_x + self.eps)
         return (self.scale * x_normed).type_as(x)
 
+
 def build_rope_cache(
     seq_len: int,
     n_elem: int,

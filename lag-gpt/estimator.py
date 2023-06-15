@@ -88,6 +88,8 @@ class LagGPTEstimator(PyTorchLightningEstimator):
         scaling: Optional[str] = "mean",
         lr: float = 1e-3,
         weight_decay: float = 1e-8,
+        aug_prob: float = 0.1,
+        aug_rate: float = 0.1,
         distr_output: DistributionOutput = StudentTOutput(),
         loss: DistributionLoss = NegativeLogLikelihood(),
         num_parallel_samples: int = 100,
@@ -126,6 +128,9 @@ class LagGPTEstimator(PyTorchLightningEstimator):
             min_future=prediction_length
         )
 
+        self.aug_prob = aug_prob
+        self.aug_rate = rate
+
     @classmethod
     def derive_auto_fields(cls, train_iter):
         stats = calculate_dataset_statistics(train_iter)
@@ -153,6 +158,8 @@ class LagGPTEstimator(PyTorchLightningEstimator):
             loss=self.loss,
             lr=self.lr,
             weight_decay=self.weight_decay,
+            aug_prob=self.aug_prob,
+            aug_rate=self.aug_rate,
             model_kwargs={
                 "input_size": self.input_size,
                 "prediction_length": self.prediction_length,
