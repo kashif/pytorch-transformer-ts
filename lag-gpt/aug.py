@@ -8,7 +8,7 @@ def freq_mask(x, y, rate=0.1, dim=1):
     y_len = y.shape[dim]
     xy = torch.cat([x, y], dim=1)
     xy_f = torch.fft.rfft(xy, dim=dim)
-    m = torch.cuda.FloatTensor(xy_f.shape).uniform_() < rate
+    m = torch.rand_like(xy_f) < rate
 
     freal = xy_f.real.masked_fill(m, 0)
     fimag = xy_f.imag.masked_fill(m, 0)
@@ -28,7 +28,7 @@ def freq_mix(x, y, rate=0.1, dim=1):
     xy = torch.cat([x, y], dim=dim)
     xy_f = torch.fft.rfft(xy, dim=dim)
 
-    m = torch.cuda.FloatTensor(xy_f.shape).uniform_() < rate
+    m = torch.rand_like(xy_f) < rate
     amp = abs(xy_f)
     _, index = amp.sort(dim=dim, descending=True)
     dominant_mask = index > 2

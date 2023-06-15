@@ -49,8 +49,8 @@ class LagGPTLightningModule(pl.LightningModule):
         self.loss = loss
         self.lr = lr
         self.weight_decay = weight_decay
-        self.aug_prob = self.aug_prob
-        self.aug_rate = self.aug_rate
+        self.aug_prob = aug_prob
+        self.aug_rate = aug_rate
 
     # # greedy prediction
     # def forward(self, *args, **kwargs):
