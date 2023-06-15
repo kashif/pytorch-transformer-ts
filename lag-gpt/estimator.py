@@ -129,7 +129,7 @@ class LagGPTEstimator(PyTorchLightningEstimator):
         )
 
         self.aug_prob = aug_prob
-        self.aug_rate = rate
+        self.aug_rate = aug_rate
 
     @classmethod
     def derive_auto_fields(cls, train_iter):
