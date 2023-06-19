@@ -90,15 +90,49 @@ class GPTLightningModule(pl.LightningModule):
     #         (-1, self.model.num_parallel_samples, self.model.prediction_length)
     #         + self.model.distr_output.event_shape,
     #     )
-    
-     # beam-search prediction
+
+    # # beam-search? prediction
+    # def forward(self, *args, **kwargs):
+    #     past_time_feat = kwargs["past_time_feat"]
+    #     past_target = kwargs["past_target"]
+    #     past_observed_values = kwargs["past_observed_values"]
+    #     future_time_feat = kwargs["future_time_feat"]
+
+    #     future_samples = []
+    #     for t in range(self.model.prediction_length):
+    #         params, loc, scale = self.model.forward(
+    #             *args,
+    #             past_target=past_target,
+    #             past_observed_values=past_observed_values,
+    #             past_time_feat=past_time_feat,
+    #         )
+    #         sliced_params = [p[:, -1:] for p in params]
+    #         distr = self.model.distr_output.distribution(sliced_params, loc, scale)
+    #         sample = distr.sample((self.model.num_parallel_samples,))
+    #         future_samples.append(sample.transpose(1, 0))
+
+    #         past_target = torch.cat((past_target, distr.mean), dim=1)
+    #         past_observed_values = torch.cat(
+    #             (past_observed_values, torch.ones_like(distr.mean)), dim=1
+    #         )
+    #         past_time_feat = torch.cat(
+    #             (past_time_feat, future_time_feat[:, t : t + 1, ...]),
+    #             dim=1,
+    #         )
+
+    #     concat_future_samples = torch.cat(future_samples, dim=-1)
+    #     return concat_future_samples.reshape(
+    #         (-1, self.model.num_parallel_samples, self.model.prediction_length)
+    #         + self.model.distr_output.event_shape,
+    #     )
+
+    # mean prediction and then sample
     def forward(self, *args, **kwargs):
         past_time_feat = kwargs["past_time_feat"]
         past_target = kwargs["past_target"]
         past_observed_values = kwargs["past_observed_values"]
         future_time_feat = kwargs["future_time_feat"]
 
-        future_samples = []
         for t in range(self.model.prediction_length):
             params, loc, scale = self.model.forward(
                 *args,
@@ -108,9 +142,6 @@ class GPTLightningModule(pl.LightningModule):
             )
             sliced_params = [p[:, -1:] for p in params]
             distr = self.model.distr_output.distribution(sliced_params, loc, scale)
-            sample = distr.sample((self.model.num_parallel_samples,))
-            future_samples.append(sample.transpose(1, 0))
-
             past_target = torch.cat((past_target, distr.mean), dim=1)
             past_observed_values = torch.cat(
                 (past_observed_values, torch.ones_like(distr.mean)), dim=1
@@ -120,8 +151,10 @@ class GPTLightningModule(pl.LightningModule):
                 dim=1,
             )
 
-        concat_future_samples = torch.cat(future_samples, dim=-1)
-        return concat_future_samples.reshape(
+        sliced_params = [p[:, -self.model.prediction_length :] for p in params]
+        distr = self.model.distr_output.distribution(sliced_params, loc, scale)
+        sample = distr.sample((self.model.num_parallel_samples,))
+        return sample.transpose(1, 0).reshape(
             (-1, self.model.num_parallel_samples, self.model.prediction_length)
             + self.model.distr_output.event_shape,
         )
