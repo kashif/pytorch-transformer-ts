@@ -54,6 +54,10 @@ class LagTransformerEstimator(PyTorchLightningEstimator):
         num_parallel_samples: int = 100,
         batch_size: int = 32,
         num_batches_per_epoch: int = 50,
+        weight_decay: float = 1e-8,
+        lr: float = 1e-3,
+        aug_prob: float = 0.1,
+        aug_rate: float = 0.1,
         trainer_kwargs: Optional[Dict[str, Any]] = dict(),
         train_sampler: Optional[InstanceSampler] = None,
         validation_sampler: Optional[InstanceSampler] = None,
@@ -81,6 +85,10 @@ class LagTransformerEstimator(PyTorchLightningEstimator):
         self.dropout = dropout
         self.scaling = scaling
 
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.aug_prob = aug_prob
+        self.aug_rate = aug_rate
         self.num_parallel_samples = num_parallel_samples
         self.batch_size = batch_size
         self.num_batches_per_epoch = num_batches_per_epoch
@@ -197,4 +205,11 @@ class LagTransformerEstimator(PyTorchLightningEstimator):
             num_parallel_samples=self.num_parallel_samples,
         )
 
-        return LagTransformerLightningModule(model=model, loss=self.loss)
+        return LagTransformerLightningModule(
+            model=model,
+            loss=self.loss,
+            lr=self.lr,
+            weight_decay=self.weight_decay,
+            aug_prob=self.aug_prob,
+            aug_rate=self.aug_rate,
+        )
