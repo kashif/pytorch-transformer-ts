@@ -61,6 +61,7 @@ class LagTransformerEstimator(PyTorchLightningEstimator):
         trainer_kwargs: Optional[Dict[str, Any]] = dict(),
         train_sampler: Optional[InstanceSampler] = None,
         validation_sampler: Optional[InstanceSampler] = None,
+        ckpt_path: Optional[str] = None,
     ) -> None:
         trainer_kwargs = {
             "max_epochs": 100,
@@ -92,6 +93,7 @@ class LagTransformerEstimator(PyTorchLightningEstimator):
         self.num_parallel_samples = num_parallel_samples
         self.batch_size = batch_size
         self.num_batches_per_epoch = num_batches_per_epoch
+        self.ckpt_path = ckpt_path
 
         self.train_sampler = train_sampler or ExpectedNumInstanceSampler(
             num_instances=1.0, min_future=prediction_length
@@ -205,11 +207,22 @@ class LagTransformerEstimator(PyTorchLightningEstimator):
             num_parallel_samples=self.num_parallel_samples,
         )
 
-        return LagTransformerLightningModule(
-            model=model,
-            loss=self.loss,
-            lr=self.lr,
-            weight_decay=self.weight_decay,
-            aug_prob=self.aug_prob,
-            aug_rate=self.aug_rate,
-        )
+        if self.ckpt_path is not None:
+            return LagTransformerLightningModule.load_from_checkpoint(
+                self.ckpt_path,
+                model=model,
+                loss=self.loss,
+                lr=self.lr,
+                weight_decay=self.weight_decay,
+                aug_prob=self.aug_prob,
+                aug_rate=self.aug_rate,
+            )
+        else:
+            return LagTransformerLightningModule(
+                model=model,
+                loss=self.loss,
+                lr=self.lr,
+                weight_decay=self.weight_decay,
+                aug_prob=self.aug_prob,
+                aug_rate=self.aug_rate,
+            )
