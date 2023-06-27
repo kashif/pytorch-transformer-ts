@@ -98,6 +98,7 @@ class LagGPTEstimator(PyTorchLightningEstimator):
         trainer_kwargs: Optional[Dict[str, Any]] = None,
         train_sampler: Optional[InstanceSampler] = None,
         validation_sampler: Optional[InstanceSampler] = None,
+        ckpt_path: Optional[str] = None,
     ) -> None:
         default_trainer_kwargs = {"max_epochs": 100}
         if trainer_kwargs is not None:
@@ -131,6 +132,8 @@ class LagGPTEstimator(PyTorchLightningEstimator):
         self.aug_prob = aug_prob
         self.aug_rate = aug_rate
 
+        self.ckpt_path = ckpt_path
+
     @classmethod
     def derive_auto_fields(cls, train_iter):
         stats = calculate_dataset_statistics(train_iter)
@@ -154,24 +157,36 @@ class LagGPTEstimator(PyTorchLightningEstimator):
         )
 
     def create_lightning_module(self) -> pl.LightningModule:
-        return LagGPTLightningModule(
-            loss=self.loss,
-            lr=self.lr,
-            weight_decay=self.weight_decay,
-            aug_prob=self.aug_prob,
-            aug_rate=self.aug_rate,
-            model_kwargs={
-                "input_size": self.input_size,
-                "prediction_length": self.prediction_length,
-                "context_length": self.context_length,
-                "n_layer": self.n_layer,
-                "n_embd": self.n_embd,
-                "n_head": self.n_head,
-                "scaling": self.scaling,
-                "distr_output": self.distr_output,
-                "num_parallel_samples": self.num_parallel_samples,
-            },
-        )
+        model_kwargs = {
+            "input_size": self.input_size,
+            "prediction_length": self.prediction_length,
+            "context_length": self.context_length,
+            "n_layer": self.n_layer,
+            "n_embd": self.n_embd,
+            "n_head": self.n_head,
+            "scaling": self.scaling,
+            "distr_output": self.distr_output,
+            "num_parallel_samples": self.num_parallel_samples,
+        }
+        if self.ckpt_path is not None:
+            return LagGPTLightningModule.load_from_checkpoint(
+                checkpoint_path=self.ckpt_path,
+                loss=self.loss,
+                lr=self.lr,
+                weight_decay=self.weight_decay,
+                aug_prob=self.aug_prob,
+                aug_rate=self.aug_rate,
+                model_kwargs=model_kwargs,
+            )
+        else:
+            return LagGPTLightningModule(
+                loss=self.loss,
+                lr=self.lr,
+                weight_decay=self.weight_decay,
+                aug_prob=self.aug_prob,
+                aug_rate=self.aug_rate,
+                model_kwargs=model_kwargs,
+            )
 
     def _create_instance_splitter(self, module: LagGPTLightningModule, mode: str):
         assert mode in ["training", "validation", "test"]

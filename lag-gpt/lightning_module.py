@@ -45,12 +45,12 @@ class LagGPTLightningModule(pl.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
-        self.model = LagGPTModel(**model_kwargs)
-        self.loss = loss
-        self.lr = lr
-        self.weight_decay = weight_decay
-        self.aug_prob = aug_prob
-        self.aug_rate = aug_rate
+        self.model = LagGPTModel(**self.hparams.model_kwargs)
+        self.loss = self.hparams.loss
+        self.lr = self.hparams.lr
+        self.weight_decay = self.hparams.weight_decay
+        self.aug_prob = self.hparams.aug_prob
+        self.aug_rate = self.hparams.aug_rate
 
     # # greedy prediction
     # def forward(self, *args, **kwargs):
