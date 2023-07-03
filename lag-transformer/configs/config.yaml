@@ -1,0 +1,25 @@
+data:
+  val_data: m4_weekly
+  test_data: traffic
+  shuffle_buffer_length: 1000
+  weighted: 0
+transformer:
+  max_epochs: 300
+  nhead: 4
+  num_encoder_layers: 8
+  num_decoder_layers: 4
+  dim_feedforward: 256
+  d_model: 128
+  activation: gelu
+  dropout: 0.1
+  context_length: 1024
+  scaling: std
+  num_parallel_samples: 100
+  batch_size: 16
+  batches_per_epoch: 100
+  weight_decay: 0.001
+  lr: 0.00000001
+  aug_prob: 0.5
+  aug_rate: 0.1
+CUDA:
+  device_id: 1
