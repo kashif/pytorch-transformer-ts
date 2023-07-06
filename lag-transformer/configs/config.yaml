@@ -17,8 +17,8 @@ transformer:
   num_parallel_samples: 100
   batch_size: 16
   batches_per_epoch: 100
-  weight_decay: 0.001
-  lr: 0.00000001
+  weight_decay: 0.00000001
+  lr: 0.001
   aug_prob: 0.5
   aug_rate: 0.1
 CUDA:
