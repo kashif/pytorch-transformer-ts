@@ -54,21 +54,13 @@ class LagHyenaLightningModule(pl.LightningModule):
 
     # # greedy prediction
     # def forward(self, *args, **kwargs):
-    #     past_time_feat = kwargs["past_time_feat"]
     #     past_target = kwargs["past_target"]
     #     past_observed_values = kwargs["past_observed_values"]
-    #     future_time_feat = kwargs["future_time_feat"]
 
-    #     repeated_past_time_feat = past_time_feat.repeat_interleave(
-    #         self.model.num_parallel_samples, 0
-    #     )
     #     repeated_past_target = past_target.repeat_interleave(
     #         self.model.num_parallel_samples, 0
     #     )
     #     repeated_past_observed_values = past_observed_values.repeat_interleave(
-    #         self.model.num_parallel_samples, 0
-    #     )
-    #     repeated_future_time_feat = future_time_feat.repeat_interleave(
     #         self.model.num_parallel_samples, 0
     #     )
 
@@ -78,7 +70,6 @@ class LagHyenaLightningModule(pl.LightningModule):
     #             *args,
     #             past_target=repeated_past_target,
     #             past_observed_values=repeated_past_observed_values,
-    #             past_time_feat=repeated_past_time_feat,
     #         )
     #         sliced_params = [p[:, -1:] for p in params]
     #         distr = self.model.distr_output.distribution(sliced_params, loc, scale)
@@ -89,10 +80,6 @@ class LagHyenaLightningModule(pl.LightningModule):
     #         repeated_past_observed_values = torch.cat(
     #             (repeated_past_observed_values, torch.ones_like(sample)), dim=1
     #         )
-    #         repeated_past_time_feat = torch.cat(
-    #             (repeated_past_time_feat, repeated_future_time_feat[:, t : t + 1, ...]),
-    #             dim=1,
-    #         )
 
     #     concat_future_samples = torch.cat(future_samples, dim=-1)
     #     return concat_future_samples.reshape(
@@ -102,10 +89,8 @@ class LagHyenaLightningModule(pl.LightningModule):
 
     # # beam-search? prediction
     # def forward(self, *args, **kwargs):
-    #     past_time_feat = kwargs["past_time_feat"]
     #     past_target = kwargs["past_target"]
     #     past_observed_values = kwargs["past_observed_values"]
-    #     future_time_feat = kwargs["future_time_feat"]
 
     #     future_samples = []
     #     for t in range(self.model.prediction_length):
@@ -113,7 +98,6 @@ class LagHyenaLightningModule(pl.LightningModule):
     #             *args,
     #             past_target=past_target,
     #             past_observed_values=past_observed_values,
-    #             past_time_feat=past_time_feat,
     #         )
     #         sliced_params = [p[:, -1:] for p in params]
     #         distr = self.model.distr_output.distribution(sliced_params, loc, scale)
@@ -123,10 +107,6 @@ class LagHyenaLightningModule(pl.LightningModule):
     #         past_target = torch.cat((past_target, distr.mean), dim=1)
     #         past_observed_values = torch.cat(
     #             (past_observed_values, torch.ones_like(distr.mean)), dim=1
-    #         )
-    #         past_time_feat = torch.cat(
-    #             (past_time_feat, future_time_feat[:, t : t + 1, ...]),
-    #             dim=1,
     #         )
 
     #     concat_future_samples = torch.cat(future_samples, dim=-1)
