@@ -2,9 +2,8 @@ dataset:
   val: m4_weekly
   test: traffic
   weighted: 0
-
 gpt:
-  max_epochs: 300
+  max_epochs: 1
   context_length: 1024
   n_layer: 8
   n_embd: 64
@@ -16,6 +15,9 @@ gpt:
   aug_rate: 0.1
   num_parallel_samples: 100
   batch_size: 32
-  batches_per_epoch: 100
+  batches_per_epoch: 9375
 CUDA:
   device_id: 3
+metrics:
+  logger: csv
+  num_steps: 1
