@@ -94,7 +94,7 @@ val_dataset = get_dataset(config["data"]["val_data"], path=dataset_path).test
 meta = get_dataset(config["data"]["val_data"], path=dataset_path).metadata
 
 experiment_name = ("data-scaling-weighted-"+str(config["transformer"]["aug_prob"]) if config["data"]["weighted"] else "data-scaling-uniform-"+str(config["transformer"]["aug_prob"]))
-experiment_logger = CSVLogger(save_dir="data-scaling-logs", name=experiment_name)
+experiment_logger = CSVLogger(save_dir="data-scaling-logs", name=experiment_name, flush_logs_every_n_steps=config["metrics"]["num_steps"]) if config["metrics"]["logger"]=="csv" else WandbLogger(save_dir="data-scaling-logs", name=experiment_name)
 experiment_version = experiment_logger.version
 
 print("Running "+ experiment_name+ " version "+ str(experiment_version))
@@ -116,7 +116,7 @@ estimator = LagTransformerEstimator(
     dropout = config["transformer"]["dropout"],
     weight_decay = config["transformer"]["weight_decay"],
     lr = config["transformer"]["lr"],
-    trainer_kwargs=dict(max_epochs=config["transformer"]["max_epochs"], accelerator="gpu", precision="bf16-mixed", logger=experiment_logger, devices=[config["CUDA"]["device_id"]]),
+    trainer_kwargs=dict(max_epochs=config["transformer"]["max_epochs"], log_every_n_steps = config["metrics"]["num_steps"], val_check_interval=config["metrics"]["num_steps"], accelerator="gpu", precision="32", logger=experiment_logger, devices=[config["CUDA"]["device_id"]]),
 )
 
 predictor_output = estimator.train_model(
@@ -125,15 +125,26 @@ predictor_output = estimator.train_model(
     shuffle_buffer_length = config["data"]["shuffle_buffer_length"]
 )
 
+if config["metrics"]["logger"]=="csv":
 
-loss_df = pd.read_csv("data-scaling-logs/"+experiment_name+"/version_"+str(experiment_version)+"/metrics.csv")
-train_loss = loss_df.dropna(subset=["train_loss"])
-val_loss = loss_df.dropna(subset=["val_loss"])
+    loss_df = pd.read_csv("data-scaling-logs/"+experiment_name+"/version_"+str(experiment_version)+"/metrics.csv")
+    train_loss = loss_df.dropna(subset=["train_loss"])
+    val_loss = loss_df.dropna(subset=["val_loss"])
 
-fig, ax = plt.subplots()
-ax.plot(train_loss["epoch"], train_loss["train_loss"], label= "train")
-ax.plot(val_loss["epoch"], val_loss["val_loss"], label="val")
-ax.legend()
-ax.set_xscale("log")
-fig.savefig("data-scaling-logs/"+experiment_name+"/version_"+str(experiment_version)+"/loss.png") 
-plt.close(fig)  
+    fig, ax = plt.subplots()
+    ax.plot(train_loss["step"], train_loss["train_loss"])
+    ax.set_xscale("log")
+    ax.set_ylabel("Training Loss")
+    ax.set_xlabel("Steps")
+    fig.savefig("data-scaling-logs/"+experiment_name+"/version_"+str(experiment_version)+"/train_loss.png") 
+    plt.close(fig)
+
+    fig, ax = plt.subplots()
+    ax.plot(val_loss["step"], val_loss["val_loss"])
+    ax.set_xscale("log")
+    ax.set_ylabel("Validation Loss")
+    ax.set_xlabel("Steps")
+    fig.savefig("data-scaling-logs/"+experiment_name+"/version_"+str(experiment_version)+"/val_loss.png") 
+    plt.close(fig)
+
+

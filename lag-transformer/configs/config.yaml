@@ -4,7 +4,7 @@ data:
   shuffle_buffer_length: 1000
   weighted: 0
 transformer:
-  max_epochs: 300
+  max_epochs: 1
   nhead: 4
   num_encoder_layers: 8
   num_decoder_layers: 4
@@ -16,10 +16,13 @@ transformer:
   scaling: std
   num_parallel_samples: 100
   batch_size: 16
-  batches_per_epoch: 100
+  batches_per_epoch: 18750
   weight_decay: 0.00000001
   lr: 0.001
   aug_prob: 0.5
   aug_rate: 0.1
 CUDA:
   device_id: 1
+metrics:
+  logger: csv
+  num_steps: 1
