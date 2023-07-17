@@ -282,28 +282,28 @@ class LagGPTFlowsModel(nn.Module):
         past_observed_values: torch.Tensor,
         future_target: Optional[torch.Tensor] = None,
     ):
-        scaled_past_target, loc, scale = self.scaler(past_target, past_observed_values) # Data is standardized (past_observed_values is passed as "weights" parameter)
+        scaled_past_target, loc, scale = self.scaler(past_target, past_observed_values)
 
         if future_target is not None:
-            future_length = future_target.shape[1] # pred_len
+            future_length = future_target.shape[1]
             input = torch.cat(
                 (
-                    scaled_past_target[..., -self.context_length :], # Just the context
-                    (future_target[..., : future_length - 1] - loc) / scale, # Not sure about the -1 here
+                    scaled_past_target[..., -self.context_length :], 
+                    (future_target[..., : future_length - 1] - loc) / scale, 
                 ),
                 dim=-1,
-            ) # Shape is (bsz, context_length+(pred_len-1))
+            )
         else:
             input = scaled_past_target[..., -self.context_length :]
 
-        prior_input = (past_target[..., : -self.context_length] - loc) / scale # This the history used to construct lags. NOTE: Why is prediction not used in the lags? (LAST PREDICTION TOKEN SHOULD BE USE THE PREDICTION WINDOW FOR THE LAG)
-        lags = lagged_sequence_values(self.lags_seq, prior_input, input, dim=-1) # Lags are added as an extra dim. Shape is (bsz, context_length+(pred_len-1), len(self.lags_seq)) # QUESTION: Are lags not added for the prediction window?
+        prior_input = (past_target[..., : -self.context_length] - loc) / scale
+        lags = lagged_sequence_values(self.lags_seq, prior_input, input, dim=-1)
 
-        static_feat = torch.cat((loc.abs().log1p(), scale.log()), dim=-1) # (bsz, 2) (loc and scale are concatenated)
+        static_feat = torch.cat((loc.abs().log1p(), scale.log()), dim=-1)
         expanded_static_feat = unsqueeze_expand(
             static_feat, dim=-2, size=lags.shape[-2]
-        ) # (bsz, context_length+(pred_len-1), 2)
-        # return: (bsz, context_length+(pred_len-1), len(self.lags_seq) + 2); (bsz, 1); (bsz, 1)
+        )
+
         return torch.cat((lags, expanded_static_feat), dim=-1), input, loc, scale
 
     def forward(
@@ -316,15 +316,15 @@ class LagGPTFlowsModel(nn.Module):
             past_target=past_target,
             past_observed_values=past_observed_values,
             future_target=future_target,
-        ) # return: (bsz, context_length+(pred_len-1), len(self.lags_seq) + 2); (bsz, 1); (bsz, 1)
+        )
 
         # forward the LLaMA model itself
         x = self.transformer.wte(
             transformer_input
-        )  # (bsz, context_length+(pred_len-1), n_embd)
+        )
 
         for block in self.transformer.h:
             x = block(x)
-        x = self.transformer.ln_f(x) # (bsz, context_length+(pred_len-1), n_embd)
+        x = self.transformer.ln_f(x)
 
         return x, scaled_input, loc, scale
