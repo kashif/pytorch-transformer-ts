@@ -129,7 +129,7 @@ predictor = estimator.train(
     shuffle_buffer_length=1000
 )
 
-if config["metrics"]["logger"]=="csv":
+if "metrics" in config and config["metrics"]["logger"]=="csv":
     loss_df = pd.read_csv(fulldir+"/lightning_logs/version_"+str(experiment_version)+"/metrics.csv")
     train_loss = loss_df.dropna(subset=["train_loss"])
     val_loss = loss_df.dropna(subset=["val_loss"])
