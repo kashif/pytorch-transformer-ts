@@ -7,20 +7,29 @@ from gluonts.evaluation import make_evaluation_predictions, Evaluator
 from gluonts.dataset.repository.datasets import get_dataset
 from pytorch_lightning.loggers import CSVLogger, WandbLogger
 
-from estimator import LagTransformerEstimator
+from estimator import LagGPTFlowsEstimator
+from pathlib import Path
 
 import argparse
 import yaml
 
+import os
+import pathlib
+import pytorch_lightning as pl
 
 parser = argparse.ArgumentParser()
 parser.add_argument("filename", help = "YAML config file.")
+parser.add_argument("--suffix", default="", type=str, required=True, help="This can be useful information to distinguish runs, like `heads-scaling-5-heads`")
+parser.add_argument("--seed", default=42, type=int)
+parser.add_argument("--dataset_path", default="/home/toolkit/datasets", type=str)
+parser.add_argument("--precision", default="32", type=str, choices=["32", "16", "bf16-mixed"])
 args = parser.parse_args()
 
 
 with open(args.filename, mode="rt", encoding="utf-8") as file:
     config = yaml.safe_load(file)
 
+pl.seed_everything(args.seed)
 
 class CombinedDatasetIterator:
     def __init__(self, datasets, seed, weights):
@@ -31,7 +40,6 @@ class CombinedDatasetIterator:
     def __next__(self):
         (dataset,) = self._rng.choices(self._datasets, weights=self._weights, k=1)
         return next(dataset)
-
 
 class CombinedDataset:
     def __init__(self, datasets, seed=None, weights=None):
@@ -49,7 +57,7 @@ class CombinedDataset:
         return sum([len(ds) for ds in self._datasets])
 
 print("Loading data...")
-dataset_path = Path("../datasets")
+dataset_path = Path(args.dataset_path)
 gluonts_ds = [
         get_dataset("airpassengers", path=dataset_path).train,
         get_dataset("australian_electricity_demand", path=dataset_path).train,
@@ -87,47 +95,42 @@ gluonts_ds = [
         get_dataset("m4_yearly", path=dataset_path).train,
         get_dataset("wind_farms_without_missing", path=dataset_path).train,
 ]
-dataset = CombinedDataset(gluonts_ds, weights=([sum([len(x["target"]) for x in d]) for d in gluonts_ds] if config["data"]["weighted"] else None)  ) 
+dataset = CombinedDataset(gluonts_ds, weights=([sum([len(x["target"]) for x in d]) for d in gluonts_ds] if config["dataset"]["weighted"] else None), seed=args.seed) 
 
+val_dataset = get_dataset(config["dataset"]["val"], path=dataset_path).test
+meta = get_dataset(config["dataset"]["val"], path=dataset_path).metadata
 
-val_dataset = get_dataset(config["data"]["val_data"], path=dataset_path).test
-meta = get_dataset(config["data"]["val_data"], path=dataset_path).metadata
+experiment_name = ("data-scaling-weighted-"+str(config["gpt"]["aug_prob"])+"_"+args.suffix if config["dataset"]["weighted"] else "data-scaling-uniform-"+str(config["gpt"]["aug_prob"])+"_"+args.suffix)
+fulldir = os.path.join(pathlib.Path(__file__).parent.resolve(), "scaling-logs", experiment_name, str(args.seed)) # Always creates the experiment directory inside "lag-gpt-flows"
+os.makedirs(fulldir, exist_ok=True)
+experiment_logger = CSVLogger(save_dir=fulldir, flush_logs_every_n_steps=config["metrics"]["num_steps"]) if config["metrics"]["logger"]=="csv" else WandbLogger(name=experiment_name + "/" + args.seed, group=experiment_name, save_dir=fulldir, config=config)
+experiment_version = experiment_logger.version # Should be 1 always since we create a new experiment for each seed
+print("Experiment directory:", fulldir)
 
-experiment_name = ("data-scaling-weighted-"+str(config["transformer"]["aug_prob"]) if config["data"]["weighted"] else "data-scaling-uniform-"+str(config["transformer"]["aug_prob"]))
-experiment_logger = CSVLogger(save_dir="data-scaling-logs", name=experiment_name, flush_logs_every_n_steps=config["metrics"]["num_steps"]) if config["metrics"]["logger"]=="csv" else WandbLogger(save_dir="data-scaling-logs", name=experiment_name)
-experiment_version = experiment_logger.version
-
-print("Running "+ experiment_name+ " version "+ str(experiment_version))
-
-estimator = LagTransformerEstimator(
+estimator = LagGPTFlowsEstimator(
     prediction_length=meta.prediction_length,
-    context_length=config["transformer"]["context_length"], # block_size: int = 2048 
-    batch_size=config["transformer"]["batch_size"], # 4
-    num_encoder_layers=config["transformer"]["num_encoder_layers"],
-    num_decoder_layers=config["transformer"]["num_decoder_layers"],
-    nhead=config["transformer"]["nhead"],
-    d_model=config["transformer"]["d_model"], # 4096
-    dim_feedforward=config["transformer"]["dim_feedforward"],
-    scaling=config["transformer"]["scaling"],
-    num_batches_per_epoch=config["transformer"]["batches_per_epoch"],
-    aug_prob = config["transformer"]["aug_prob"],
-    aug_rate = config["transformer"]["aug_rate"],
-    activation = config["transformer"]["activation"],
-    dropout = config["transformer"]["dropout"],
-    weight_decay = config["transformer"]["weight_decay"],
-    lr = config["transformer"]["lr"],
-    trainer_kwargs=dict(max_epochs=config["transformer"]["max_epochs"], log_every_n_steps = config["metrics"]["num_steps"], val_check_interval=config["metrics"]["num_steps"], accelerator="gpu", precision="32", logger=experiment_logger, devices=[config["CUDA"]["device_id"]]),
+    context_length=config["gpt"]["context_length"], # block_size: int = 2048 
+    batch_size=config["gpt"]["batch_size"], # 4
+    n_layer=config["gpt"]["n_layer"],
+    n_head=config["gpt"]["n_head"],
+    n_embd=config["gpt"]["n_embd"], # 4096
+    dsf_marginal=config["gpt"]["dsf_marginal"],
+    scaling=config["gpt"]["scaling"],
+    aug_prob = config["gpt"]["aug_prob"],
+    aug_rate = config["gpt"]["aug_rate"],
+    num_batches_per_epoch= config["gpt"]["batches_per_epoch"],
+    trainer_kwargs=dict(max_epochs=config["gpt"]["max_epochs"], log_every_n_steps = config["metrics"]["num_steps"], val_check_interval=config["metrics"]["num_steps"], accelerator="gpu", precision="32", logger=experiment_logger, devices=[config["CUDA"]["device_id"]]),
 )
 
-predictor_output = estimator.train_model(
+
+predictor = estimator.train(
     training_data=dataset, 
     validation_data=val_dataset,
-    shuffle_buffer_length = config["data"]["shuffle_buffer_length"]
+    shuffle_buffer_length=1000
 )
 
-if config["metrics"]["logger"]=="csv":
-
-    loss_df = pd.read_csv("data-scaling-logs/"+experiment_name+"/version_"+str(experiment_version)+"/metrics.csv")
+if "metrics" in config and config["metrics"]["logger"]=="csv":
+    loss_df = pd.read_csv(fulldir+"/lightning_logs/version_"+str(experiment_version)+"/metrics.csv")
     train_loss = loss_df.dropna(subset=["train_loss"])
     val_loss = loss_df.dropna(subset=["val_loss"])
 
@@ -136,7 +139,7 @@ if config["metrics"]["logger"]=="csv":
     ax.set_xscale("log")
     ax.set_ylabel("Training Loss")
     ax.set_xlabel("Steps")
-    fig.savefig("data-scaling-logs/"+experiment_name+"/version_"+str(experiment_version)+"/train_loss.png") 
+    fig.savefig(fulldir+"/lightning_logs/version_"+str(experiment_version)+"/train_loss.png") 
     plt.close(fig)
 
     fig, ax = plt.subplots()
@@ -144,7 +147,6 @@ if config["metrics"]["logger"]=="csv":
     ax.set_xscale("log")
     ax.set_ylabel("Validation Loss")
     ax.set_xlabel("Steps")
-    fig.savefig("data-scaling-logs/"+experiment_name+"/version_"+str(experiment_version)+"/val_loss.png") 
+    fig.savefig(fulldir+"/lightning_logs/version_"+str(experiment_version)+"/val_loss.png") 
     plt.close(fig)
-
 

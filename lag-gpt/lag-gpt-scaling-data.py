@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 from gluonts.evaluation import make_evaluation_predictions, Evaluator
 from gluonts.dataset.repository.datasets import get_dataset
-from pytorch_lightning.loggers import CSVLogger
+from pytorch_lightning.loggers import CSVLogger, WandbLogger
 
 from estimator import LagGPTEstimator
 from pathlib import Path
