@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 import math
 from dataclasses import dataclass
 
@@ -6,17 +6,9 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from gluonts.time_feature import get_lags_for_frequency
 from gluonts.torch.util import lagged_sequence_values, unsqueeze_expand
 from gluonts.torch.scaler import StdScaler, MeanScaler, NOPScaler
 from gluonts.torch.distributions import StudentTOutput
-
-llama_configs = {
-    "7B": dict(n_layer=32, n_head=32, n_embd=2048),
-    "13B": dict(n_layer=40, n_head=40, n_embd=5120),
-    "30B": dict(n_layer=60, n_head=52, n_embd=6656),
-    "65B": dict(n_layer=80, n_head=64, n_embd=8192),
-}
 
 
 @dataclass
@@ -26,6 +18,7 @@ class LTSMConfig:
     n_layer: int = 32
     n_head: int = 32
     n_embd: int = 4096
+    rope_scaling: Optional[dict] = None
 
 
 class Block(nn.Module):
@@ -42,6 +35,144 @@ class Block(nn.Module):
         return x
 
 
+class LlamaRotaryEmbedding(torch.nn.Module):
+    def __init__(self, dim, max_position_embeddings=2048, base=10000, device=None):
+        super().__init__()
+
+        self.dim = dim
+        self.max_position_embeddings = max_position_embeddings
+        self.base = base
+        inv_freq = 1.0 / (
+            self.base ** (torch.arange(0, self.dim, 2).float().to(device) / self.dim)
+        )
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+
+        # Build here to make `torch.jit.trace` work.
+        self._set_cos_sin_cache(
+            seq_len=max_position_embeddings,
+            device=self.inv_freq.device,
+            dtype=torch.get_default_dtype(),
+        )
+
+    def _set_cos_sin_cache(self, seq_len, device, dtype):
+        self.max_seq_len_cached = seq_len
+        t = torch.arange(
+            self.max_seq_len_cached, device=device, dtype=self.inv_freq.dtype
+        )
+
+        freqs = torch.einsum("i,j->ij", t, self.inv_freq)
+        # Different from paper, but it uses a different permutation in order to obtain the same calculation
+        emb = torch.cat((freqs, freqs), dim=-1)
+        self.register_buffer(
+            "cos_cached", emb.cos()[None, None, :, :].to(dtype), persistent=False
+        )
+        self.register_buffer(
+            "sin_cached", emb.sin()[None, None, :, :].to(dtype), persistent=False
+        )
+
+    def forward(self, device, dtype, seq_len=None):
+        # x: [bs, num_attention_heads, seq_len, head_size]
+        if seq_len > self.max_seq_len_cached:
+            self._set_cos_sin_cache(seq_len=seq_len, device=device, dtype=dtype)
+
+        return (
+            self.cos_cached[:, :, :seq_len, ...].to(dtype=dtype),
+            self.sin_cached[:, :, :seq_len, ...].to(dtype=dtype),
+        )
+
+
+class LlamaLinearScalingRotaryEmbedding(LlamaRotaryEmbedding):
+    """LlamaRotaryEmbedding extended with linear scaling. Credits to the Reddit user /u/kaiokendev"""
+
+    def __init__(
+        self,
+        dim,
+        max_position_embeddings=2048,
+        base=10000,
+        device=None,
+        scaling_factor=1.0,
+    ):
+        self.scaling_factor = scaling_factor
+        super().__init__(dim, max_position_embeddings, base, device)
+
+    def _set_cos_sin_cache(self, seq_len, device, dtype):
+        self.max_seq_len_cached = seq_len
+        t = torch.arange(
+            self.max_seq_len_cached, device=device, dtype=self.inv_freq.dtype
+        )
+        t = t / self.scaling_factor
+
+        freqs = torch.einsum("i,j->ij", t, self.inv_freq)
+        # Different from paper, but it uses a different permutation in order to obtain the same calculation
+        emb = torch.cat((freqs, freqs), dim=-1)
+        self.register_buffer(
+            "cos_cached", emb.cos()[None, None, :, :].to(dtype), persistent=False
+        )
+        self.register_buffer(
+            "sin_cached", emb.sin()[None, None, :, :].to(dtype), persistent=False
+        )
+
+
+class LlamaDynamicNTKScalingRotaryEmbedding(LlamaRotaryEmbedding):
+    """LlamaRotaryEmbedding extended with Dynamic NTK scaling. Credits to the Reddit users /u/bloc97 and /u/emozilla"""
+
+    def __init__(
+        self,
+        dim,
+        max_position_embeddings=2048,
+        base=10000,
+        device=None,
+        scaling_factor=1.0,
+    ):
+        self.scaling_factor = scaling_factor
+        super().__init__(dim, max_position_embeddings, base, device)
+
+    def _set_cos_sin_cache(self, seq_len, device, dtype):
+        self.max_seq_len_cached = seq_len
+
+        if seq_len > self.max_position_embeddings:
+            base = self.base * (
+                (self.scaling_factor * seq_len / self.max_position_embeddings)
+                - (self.scaling_factor - 1)
+            ) ** (self.dim / (self.dim - 2))
+            inv_freq = 1.0 / (
+                base ** (torch.arange(0, self.dim, 2).float().to(device) / self.dim)
+            )
+            self.register_buffer("inv_freq", inv_freq, persistent=False)
+
+        t = torch.arange(
+            self.max_seq_len_cached, device=device, dtype=self.inv_freq.dtype
+        )
+
+        freqs = torch.einsum("i,j->ij", t, self.inv_freq)
+        # Different from paper, but it uses a different permutation in order to obtain the same calculation
+        emb = torch.cat((freqs, freqs), dim=-1)
+        self.register_buffer(
+            "cos_cached", emb.cos()[None, None, :, :].to(dtype), persistent=False
+        )
+        self.register_buffer(
+            "sin_cached", emb.sin()[None, None, :, :].to(dtype), persistent=False
+        )
+
+
+def rotate_half(x):
+    """Rotates half the hidden dims of the input."""
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2 :]
+    return torch.cat((-x2, x1), dim=-1)
+
+
+def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
+    # The first two dimensions of cos and sin are always 1, so we can `squeeze` them.
+    cos = cos.squeeze(1).squeeze(0)  # [seq_len, dim]
+    sin = sin.squeeze(1).squeeze(0)  # [seq_len, dim]
+    cos = cos[position_ids].unsqueeze(1)  # [bs, 1, seq_len, dim]
+    sin = sin[position_ids].unsqueeze(1)  # [bs, 1, seq_len, dim]
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    return q_embed, k_embed
+
+
 class CausalSelfAttention(nn.Module):
     def __init__(self, config: LTSMConfig) -> None:
         super().__init__()
@@ -55,7 +186,61 @@ class CausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.block_size = config.block_size
-        self.rope_cache: Optional[torch.Tensor] = None
+
+        self.rope_scaling = config.rope_scaling
+        self._rope_scaling_validation()
+
+        self._init_rope()
+
+    def _init_rope(self):
+        if self.rope_scaling is None:
+            self.rotary_emb = LlamaRotaryEmbedding(
+                self.n_embd // self.n_head, max_position_embeddings=self.block_size
+            )
+        else:
+            scaling_type = self.rope_scaling["type"]
+            scaling_factor = self.rope_scaling["factor"]
+            if scaling_type == "linear":
+                self.rotary_emb = LlamaLinearScalingRotaryEmbedding(
+                    self.n_embd // self.n_head,
+                    max_position_embeddings=self.block_size,
+                    scaling_factor=scaling_factor,
+                )
+            elif scaling_type == "dynamic":
+                self.rotary_emb = LlamaDynamicNTKScalingRotaryEmbedding(
+                    self.n_embd // self.n_head,
+                    max_position_embeddings=self.block_size,
+                    scaling_factor=scaling_factor,
+                )
+            else:
+                raise ValueError(f"Unknown RoPE scaling type {scaling_type}")
+
+    def _rope_scaling_validation(self):
+        """
+        Validate the `rope_scaling` configuration.
+        """
+        if self.rope_scaling is None:
+            return
+
+        if not isinstance(self.rope_scaling, dict) or len(self.rope_scaling) != 2:
+            raise ValueError(
+                "`rope_scaling` must be a dictionary with with two fields, `name` and `factor`, "
+                f"got {self.rope_scaling}"
+            )
+        rope_scaling_type = self.rope_scaling.get("type", None)
+        rope_scaling_factor = self.rope_scaling.get("factor", None)
+        if rope_scaling_type is None or rope_scaling_type not in ["linear", "dynamic"]:
+            raise ValueError(
+                f"`rope_scaling`'s name field must be one of ['linear', 'dynamic'], got {rope_scaling_type}"
+            )
+        if (
+            rope_scaling_factor is None
+            or not isinstance(rope_scaling_factor, float)
+            or rope_scaling_factor <= 1.0
+        ):
+            raise ValueError(
+                f"`rope_scaling`'s factor field must be an float > 1, got {rope_scaling_factor}"
+            )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # batch size, sequence length, embedding dimensionality (n_embd)
@@ -69,17 +254,8 @@ class CausalSelfAttention(nn.Module):
         q = q.view(B, T, self.n_head, head_size).transpose(1, 2)  # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, head_size).transpose(1, 2)  # (B, nh, T, hs)
 
-        if self.rope_cache is None:
-            # cache for future forward calls
-            self.rope_cache = build_rope_cache(
-                seq_len=self.block_size,
-                n_elem=self.n_embd // self.n_head,
-                dtype=x.dtype,
-                device=x.device,
-            )
-
-        q = apply_rope(q, self.rope_cache)
-        k = apply_rope(k, self.rope_cache)
+        cos, sin = self.rotary_emb(device=v.device, dtype=v.dtype, seq_len=T)
+        q, k = apply_rotary_pos_emb(q, k, cos, sin, position_ids=None)
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         #  att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
@@ -92,9 +268,8 @@ class CausalSelfAttention(nn.Module):
             q, k, v, attn_mask=None, dropout_p=0.0, is_causal=True
         )
 
-        y = (
-            y.transpose(1, 2).contiguous().view(B, T, C)
-        )  # re-assemble all head outputs side by side
+        # re-assemble all head outputs side by side
+        y = y.transpose(1, 2).contiguous().view(B, T, C)
 
         # output projection
         y = self.c_proj(y)
@@ -149,96 +324,31 @@ class RMSNorm(nn.Module):
         return (self.scale * x_normed).type_as(x)
 
 
-def build_rope_cache(
-    seq_len: int,
-    n_elem: int,
-    dtype: torch.dtype,
-    device: torch.device,
-    base: int = 10000,
-) -> torch.Tensor:
-    """Enhanced Transformer with Rotary Position Embedding.
-
-    Derived from: https://github.com/labmlai/annotated_deep_learning_paper_implementations/blob/master/labml_nn/
-    transformers/rope/__init__.py. MIT License:
-    https://github.com/labmlai/annotated_deep_learning_paper_implementations/blob/master/license.
-    """
-    # $\Theta = {\theta_i = 10000^{\frac{2(i-1)}{d}}, i \in [1, 2, ..., \frac{d}{2}]}$
-    theta = 1.0 / (
-        base ** (torch.arange(0, n_elem, 2, dtype=dtype, device=device) / n_elem)
-    )
-
-    # Create position indexes `[0, 1, ..., seq_len - 1]`
-    seq_idx = torch.arange(seq_len, dtype=dtype, device=device)
-
-    # Calculate the product of position index and $\theta_i$
-    idx_theta = torch.outer(seq_idx, theta).float()
-
-    cache = torch.stack([torch.cos(idx_theta), torch.sin(idx_theta)], dim=-1)
-
-    # this is to mimic the behaviour of complex32, else we will get different results
-    if dtype in (torch.float16, torch.bfloat16, torch.int8):
-        cache = cache.half()
-    return cache
-
-
-def apply_rope(x: torch.Tensor, rope_cache: torch.Tensor) -> torch.Tensor:
-    x = x.transpose(1, 2)
-
-    # truncate to support variable sizes
-    T = x.size(1)
-    rope_cache = rope_cache[:T]
-
-    # cast because the reference does
-    xshaped = x.float().reshape(*x.shape[:-1], -1, 2)
-    rope_cache = rope_cache.view(1, xshaped.size(1), 1, xshaped.size(3), 2)
-    x_out2 = torch.stack(
-        [
-            xshaped[..., 0] * rope_cache[..., 0] - xshaped[..., 1] * rope_cache[..., 1],
-            xshaped[..., 1] * rope_cache[..., 0] + xshaped[..., 0] * rope_cache[..., 1],
-        ],
-        -1,
-    )
-
-    x_out2 = x_out2.flatten(3)
-    return x_out2.transpose(1, 2).type_as(x)
-
-
 class LagGPTModel(nn.Module):
     def __init__(
         self,
-        prediction_length: int,
-        context_length: int,
+        max_context_length: int,
         scaling: str,
         input_size: int,
         n_layer: int,
         n_embd: int,
         n_head: int,
+        lags_seq: List[int],
+        rope_scaling=None,
         distr_output=StudentTOutput(),
         num_parallel_samples: int = 100,
     ) -> None:
         super().__init__()
-        self.lags_seq = sorted(
-            list(
-                set(
-                    get_lags_for_frequency(freq_str="Q", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="M", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="W", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="D", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="H", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="T", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="S", num_default_lags=1)
-                )
-            )
-        )
+        self.lags_seq = lags_seq
+
         config = LTSMConfig(
             n_layer=n_layer,
             n_embd=n_embd,
             n_head=n_head,
-            block_size=context_length + prediction_length,
+            block_size=max_context_length,
             feature_size=input_size * (len(self.lags_seq)) + 2,
+            rope_scaling=rope_scaling,
         )
-        self.context_length = context_length
-        self.prediction_length = prediction_length
         self.num_parallel_samples = num_parallel_samples
 
         if scaling == "mean":
@@ -257,10 +367,6 @@ class LagGPTModel(nn.Module):
                 ln_f=RMSNorm(config.n_embd),
             )
         )
-
-    @property
-    def _past_length(self) -> int:
-        return self.context_length + max(self.lags_seq)
 
     def _init_weights(self, module: nn.Module) -> None:
         if isinstance(module, nn.Linear):
@@ -281,18 +387,17 @@ class LagGPTModel(nn.Module):
         scaled_past_target, loc, scale = self.scaler(past_target, past_observed_values)
 
         if future_target is not None:
-            future_length = future_target.shape[1]
             input = torch.cat(
                 (
-                    scaled_past_target[..., -self.context_length :],
-                    (future_target[..., : future_length - 1] - loc) / scale,
+                    scaled_past_target[..., max(self.lags_seq) :],
+                    (future_target[..., :-1] - loc) / scale,
                 ),
                 dim=-1,
             )
         else:
-            input = scaled_past_target[..., -self.context_length :]
+            input = scaled_past_target[..., max(self.lags_seq) :]
 
-        prior_input = (past_target[..., : -self.context_length] - loc) / scale
+        prior_input = (past_target[..., : max(self.lags_seq)] - loc) / scale
         lags = lagged_sequence_values(self.lags_seq, prior_input, input, dim=-1)
 
         static_feat = torch.cat((loc.abs().log1p(), scale.log()), dim=-1)
