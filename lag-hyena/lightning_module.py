@@ -37,6 +37,8 @@ class LagHyenaLightningModule(pl.LightningModule):
     def __init__(
         self,
         model_kwargs: dict,
+        context_length: int,
+        prediction_length: int,
         loss: DistributionLoss = NegativeLogLikelihood(),
         lr: float = 1e-3,
         weight_decay: float = 1e-8,
@@ -46,46 +48,48 @@ class LagHyenaLightningModule(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.model = LagHyenaModel(**self.hparams.model_kwargs)
+        self.context_length = self.hparams.context_length
+        self.prediction_length = self.hparams.prediction_length
         self.loss = self.hparams.loss
         self.lr = self.hparams.lr
         self.weight_decay = self.hparams.weight_decay
         self.aug_prob = self.hparams.aug_prob
         self.aug_rate = self.hparams.aug_rate
 
-    # # greedy prediction
-    # def forward(self, *args, **kwargs):
-    #     past_target = kwargs["past_target"]
-    #     past_observed_values = kwargs["past_observed_values"]
+    # greedy prediction
+    def forward(self, *args, **kwargs):
+        past_target = kwargs["past_target"]
+        past_observed_values = kwargs["past_observed_values"]
 
-    #     repeated_past_target = past_target.repeat_interleave(
-    #         self.model.num_parallel_samples, 0
-    #     )
-    #     repeated_past_observed_values = past_observed_values.repeat_interleave(
-    #         self.model.num_parallel_samples, 0
-    #     )
+        repeated_past_target = past_target.repeat_interleave(
+            self.model.num_parallel_samples, 0
+        )
+        repeated_past_observed_values = past_observed_values.repeat_interleave(
+            self.model.num_parallel_samples, 0
+        )
 
-    #     future_samples = []
-    #     for t in range(self.model.prediction_length):
-    #         params, loc, scale = self.model.forward(
-    #             *args,
-    #             past_target=repeated_past_target,
-    #             past_observed_values=repeated_past_observed_values,
-    #         )
-    #         sliced_params = [p[:, -1:] for p in params]
-    #         distr = self.model.distr_output.distribution(sliced_params, loc, scale)
-    #         sample = distr.sample()
-    #         future_samples.append(sample)
+        future_samples = []
+        for t in range(self.prediction_length):
+            params, loc, scale = self.model.forward(
+                *args,
+                past_target=repeated_past_target,
+                past_observed_values=repeated_past_observed_values,
+            )
+            sliced_params = [p[:, -1:] for p in params]
+            distr = self.model.distr_output.distribution(sliced_params, loc, scale)
+            sample = distr.sample()
+            future_samples.append(sample)
 
-    #         repeated_past_target = torch.cat((repeated_past_target, sample), dim=1)
-    #         repeated_past_observed_values = torch.cat(
-    #             (repeated_past_observed_values, torch.ones_like(sample)), dim=1
-    #         )
+            repeated_past_target = torch.cat((repeated_past_target, sample), dim=1)
+            repeated_past_observed_values = torch.cat(
+                (repeated_past_observed_values, torch.ones_like(sample)), dim=1
+            )
 
-    #     concat_future_samples = torch.cat(future_samples, dim=-1)
-    #     return concat_future_samples.reshape(
-    #         (-1, self.model.num_parallel_samples, self.model.prediction_length)
-    #         + self.model.distr_output.event_shape,
-    #     )
+        concat_future_samples = torch.cat(future_samples, dim=-1)
+        return concat_future_samples.reshape(
+            (-1, self.model.num_parallel_samples, self.prediction_length)
+            + self.model.distr_output.event_shape,
+        )
 
     # # beam-search? prediction
     # def forward(self, *args, **kwargs):
@@ -93,7 +97,7 @@ class LagHyenaLightningModule(pl.LightningModule):
     #     past_observed_values = kwargs["past_observed_values"]
 
     #     future_samples = []
-    #     for t in range(self.model.prediction_length):
+    #     for t in range(self.prediction_length):
     #         params, loc, scale = self.model.forward(
     #             *args,
     #             past_target=past_target,
@@ -111,35 +115,35 @@ class LagHyenaLightningModule(pl.LightningModule):
 
     #     concat_future_samples = torch.cat(future_samples, dim=-1)
     #     return concat_future_samples.reshape(
-    #         (-1, self.model.num_parallel_samples, self.model.prediction_length)
+    #         (-1, self.model.num_parallel_samples, self.prediction_length)
     #         + self.model.distr_output.event_shape,
     #     )
 
-    # mean prediction and then sample
-    def forward(self, *args, **kwargs):
-        past_target = kwargs["past_target"]
-        past_observed_values = kwargs["past_observed_values"]
+    # # mean prediction and then sample
+    # def forward(self, *args, **kwargs):
+    #     past_target = kwargs["past_target"]
+    #     past_observed_values = kwargs["past_observed_values"]
 
-        for t in range(self.model.prediction_length):
-            params, loc, scale = self.model(
-                *args,
-                past_target=past_target,
-                past_observed_values=past_observed_values,
-            )
-            sliced_params = [p[:, -1:] for p in params]
-            distr = self.model.distr_output.distribution(sliced_params, loc, scale)
-            past_target = torch.cat((past_target, distr.mean), dim=1)
-            past_observed_values = torch.cat(
-                (past_observed_values, torch.ones_like(distr.mean)), dim=1
-            )
+    #     for t in range(self.prediction_length):
+    #         params, loc, scale = self.model(
+    #             *args,
+    #             past_target=past_target,
+    #             past_observed_values=past_observed_values,
+    #         )
+    #         sliced_params = [p[:, -1:] for p in params]
+    #         distr = self.model.distr_output.distribution(sliced_params, loc, scale)
+    #         past_target = torch.cat((past_target, distr.mean), dim=1)
+    #         past_observed_values = torch.cat(
+    #             (past_observed_values, torch.ones_like(distr.mean)), dim=1
+    #         )
 
-        sliced_params = [p[:, -self.model.prediction_length :] for p in params]
-        distr = self.model.distr_output.distribution(sliced_params, loc, scale)
-        sample = distr.sample((self.model.num_parallel_samples,))
-        return sample.transpose(1, 0).reshape(
-            (-1, self.model.num_parallel_samples, self.model.prediction_length)
-            + self.model.distr_output.event_shape,
-        )
+    #     sliced_params = [p[:, -self.prediction_length :] for p in params]
+    #     distr = self.model.distr_output.distribution(sliced_params, loc, scale)
+    #     sample = distr.sample((self.model.num_parallel_samples,))
+    #     return sample.transpose(1, 0).reshape(
+    #         (-1, self.model.num_parallel_samples, self.prediction_length)
+    #         + self.model.distr_output.event_shape,
+    #     )
 
     # train
     def _compute_loss(self, batch):
@@ -171,15 +175,13 @@ class LagHyenaLightningModule(pl.LightningModule):
         )
         distr = self.model.distr_output.distribution(distr_args, loc, scale)
 
-        context_target = take_last(
-            past_target, dim=-1, num=self.model.context_length - 1
-        )
+        context_target = take_last(past_target, dim=-1, num=self.context_length - 1)
         target = torch.cat(
             (context_target, future_target_reshaped),
             dim=1,
         )
         context_observed = take_last(
-            past_observed_values, dim=-1, num=self.model.context_length - 1
+            past_observed_values, dim=-1, num=self.context_length - 1
         )
         observed_values = torch.cat((context_observed, future_observed_reshaped), dim=1)
 
