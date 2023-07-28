@@ -1,11 +1,12 @@
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, Optional
 
 import torch
+
 from gluonts.core.component import validated
 from gluonts.dataset.common import Dataset
 from gluonts.dataset.field_names import FieldName
 from gluonts.itertools import Cyclic
-from gluonts.time_feature import TimeFeature, time_features_from_frequency_str
+from gluonts.time_feature import get_lags_for_frequency
 from gluonts.torch.model.estimator import PyTorchLightningEstimator
 from gluonts.torch.model.predictor import PyTorchPredictor
 from gluonts.torch.distributions import DistributionOutput, StudentTOutput
@@ -48,6 +49,7 @@ class LagTransformerEstimator(PyTorchLightningEstimator):
         activation: str = "gelu",
         dropout: float = 0.1,
         context_length: Optional[int] = None,
+        max_context_length: int = 2048,
         scaling: Optional[str] = "mean",
         distr_output: DistributionOutput = StudentTOutput(),
         loss: DistributionLoss = NegativeLogLikelihood(),
@@ -70,9 +72,24 @@ class LagTransformerEstimator(PyTorchLightningEstimator):
         super().__init__(trainer_kwargs=trainer_kwargs)
 
         self.context_length = (
-            context_length if context_length is not None else prediction_length
+            context_length if context_length is not None else prediction_length * 2
         )
         self.prediction_length = prediction_length
+        self.max_context_length = max_context_length
+
+        self.lags_seq = sorted(
+            list(
+                set(
+                    get_lags_for_frequency(freq_str="Q", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="M", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="W", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="D", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="H", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="T", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="S", num_default_lags=1)
+                )
+            )
+        )
         self.distr_output = distr_output
         self.loss = loss
 
@@ -130,7 +147,7 @@ class LagTransformerEstimator(PyTorchLightningEstimator):
             start_field=FieldName.START,
             forecast_start_field=FieldName.FORECAST_START,
             instance_sampler=instance_sampler,
-            past_length=module.model._past_length,
+            past_length=self.context_length + max(self.lags_seq),
             future_length=self.prediction_length,
             time_series_fields=[FieldName.OBSERVED_VALUES],
             dummy_value=self.distr_output.value_in_support,
@@ -189,28 +206,27 @@ class LagTransformerEstimator(PyTorchLightningEstimator):
         )
 
     def create_lightning_module(self) -> LagTransformerLightningModule:
-        model = LagTransformerModel(
-            context_length=self.context_length,
-            prediction_length=self.prediction_length,
-            # transformer arguments
-            d_model=self.d_model,
-            nhead=self.nhead,
-            num_encoder_layers=self.num_encoder_layers,
-            num_decoder_layers=self.num_decoder_layers,
-            activation=self.activation,
-            dropout=self.dropout,
-            dim_feedforward=self.dim_feedforward,
-            # univariate input
-            input_size=self.input_size,
-            distr_output=self.distr_output,
-            scaling=self.scaling,
-            num_parallel_samples=self.num_parallel_samples,
-        )
-
+        model_kwargs = {
+            "input_size": self.input_size,
+            "max_context_length": self.max_context_length,
+            "lags_seq": self.lags_seq,
+            "d_model": self.d_model,
+            "nhead": self.nhead,
+            "num_encoder_layers": self.num_encoder_layers,
+            "num_decoder_layers": self.num_decoder_layers,
+            "activation": self.activation,
+            "dropout": self.dropout,
+            "dim_feedforward": self.dim_feedforward,
+            "scaling": self.scaling,
+            "distr_output": self.distr_output,
+            "num_parallel_samples": self.num_parallel_samples,
+        }
         if self.ckpt_path is not None:
             return LagTransformerLightningModule.load_from_checkpoint(
                 self.ckpt_path,
-                model=model,
+                model_kwargs=model_kwargs,
+                context_length=self.context_length,
+                prediction_length=self.prediction_length,
                 loss=self.loss,
                 lr=self.lr,
                 weight_decay=self.weight_decay,
@@ -219,7 +235,9 @@ class LagTransformerEstimator(PyTorchLightningEstimator):
             )
         else:
             return LagTransformerLightningModule(
-                model=model,
+                model_kwargs=model_kwargs,
+                context_length=self.context_length,
+                prediction_length=self.prediction_length,
                 loss=self.loss,
                 lr=self.lr,
                 weight_decay=self.weight_decay,
