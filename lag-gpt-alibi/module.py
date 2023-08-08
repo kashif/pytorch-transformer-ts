@@ -1,15 +1,14 @@
-from typing import Optional
 import math
 from dataclasses import dataclass
+from typing import Optional
 
 import torch
+from gluonts.time_feature import get_lags_for_frequency
+from gluonts.torch.distributions import StudentTOutput
+from gluonts.torch.scaler import MeanScaler, NOPScaler, StdScaler
+from gluonts.torch.util import lagged_sequence_values, unsqueeze_expand
 from torch import nn
 from torch.nn import functional as F
-
-from gluonts.time_feature import get_lags_for_frequency
-from gluonts.torch.util import lagged_sequence_values, unsqueeze_expand
-from gluonts.torch.scaler import StdScaler, MeanScaler, NOPScaler
-from gluonts.torch.distributions import StudentTOutput
 
 llama_configs = {
     "7B": dict(n_layer=32, n_head=32, n_embd=2048),
@@ -19,8 +18,9 @@ llama_configs = {
 }
 
 
-
-def build_alibi_tensor(attention_mask: torch.Tensor, num_heads: int, dtype: torch.dtype) -> torch.Tensor:
+def build_alibi_tensor(
+    attention_mask: torch.Tensor, num_heads: int, dtype: torch.dtype
+) -> torch.Tensor:
     """
     Derived from: https://github.com/huggingface/transformers/blob/main/src/transformers/models/bloom/modeling_bloom.py#L86
     https://github.com/huggingface/transformers/blob/main/LICENSE
@@ -43,17 +43,29 @@ def build_alibi_tensor(attention_mask: torch.Tensor, num_heads: int, dtype: torc
     batch_size, seq_length = attention_mask.shape
     closest_power_of_2 = 2 ** math.floor(math.log2(num_heads))
     base = torch.tensor(
-        2 ** (-(2 ** -(math.log2(closest_power_of_2) - 3))), device=attention_mask.device, dtype=torch.float32
+        2 ** (-(2 ** -(math.log2(closest_power_of_2) - 3))),
+        device=attention_mask.device,
+        dtype=torch.float32,
     )
-    powers = torch.arange(1, 1 + closest_power_of_2, device=attention_mask.device, dtype=torch.int32)
+    powers = torch.arange(
+        1, 1 + closest_power_of_2, device=attention_mask.device, dtype=torch.int32
+    )
     slopes = torch.pow(base, powers)
 
     if closest_power_of_2 != num_heads:
         extra_base = torch.tensor(
-            2 ** (-(2 ** -(math.log2(2 * closest_power_of_2) - 3))), device=attention_mask.device, dtype=torch.float32
+            2 ** (-(2 ** -(math.log2(2 * closest_power_of_2) - 3))),
+            device=attention_mask.device,
+            dtype=torch.float32,
         )
         num_remaining_heads = min(closest_power_of_2, num_heads - closest_power_of_2)
-        extra_powers = torch.arange(1, 1 + 2 * num_remaining_heads, 2, device=attention_mask.device, dtype=torch.int32)
+        extra_powers = torch.arange(
+            1,
+            1 + 2 * num_remaining_heads,
+            2,
+            device=attention_mask.device,
+            dtype=torch.int32,
+        )
         slopes = torch.cat([slopes, torch.pow(extra_base, extra_powers)], dim=0)
 
     # Note: alibi will added to the attention bias that will be applied to the query, key product of attention
@@ -64,7 +76,7 @@ def build_alibi_tensor(attention_mask: torch.Tensor, num_heads: int, dtype: torc
     # https://github.com/huggingface/transformers/blob/f681437203baa7671de3174b0fa583c349d9d5e1/src/transformers/models/t5/modeling_t5.py#L527
     arange_tensor = ((attention_mask.cumsum(dim=-1) - 1) * attention_mask)[:, None, :]
     alibi = slopes[..., None] * arange_tensor
-    
+
     return alibi.reshape(batch_size, num_heads, 1, seq_length).to(dtype)
     # HF original output
     # return alibi.reshape(batch_size * num_heads, 1, seq_length).to(dtype)
@@ -77,10 +89,10 @@ def scaled_dot_product_attention(
     value: torch.Tensor,
     alibi: torch.Tensor,
     beta: float,
-    attn_mask: torch.Tensor=None,
-    dropout_p: float=0.0,
-    is_causal: bool=False,
-    scale: int=None
+    attn_mask: torch.Tensor = None,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    scale: int = None,
 ) -> torch.Tensor:
     """
     Derived from: https://github.com/pytorch/pytorch/blob/main/torch/nn/functional.py#L4902
@@ -349,7 +361,7 @@ class LagGPTAlibiModel(nn.Module):
         x = self.transformer.wte(
             transformer_input
         )  # token embeddings of shape (b, t, n_embd)
-        
+
         # batch size, sequence length, embedding dimensionality (n_embd)
         (B, T, C) = x.size()
 
@@ -357,7 +369,9 @@ class LagGPTAlibiModel(nn.Module):
         attention_mask = torch.ones((B, T), device=transformer_input.device)
 
         # Compute alibi tensor for given attention and n_head
-        alibi = build_alibi_tensor(attention_mask, self.n_head, dtype=transformer_input .dtype)
+        alibi = build_alibi_tensor(
+            attention_mask, self.n_head, dtype=transformer_input.dtype
+        )
 
         for block in self.transformer.h:
             x = block(x, alibi)
