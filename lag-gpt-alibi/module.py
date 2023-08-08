@@ -1,9 +1,8 @@
 import math
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
 
 import torch
-from gluonts.time_feature import get_lags_for_frequency
 from gluonts.torch.distributions import StudentTOutput
 from gluonts.torch.scaler import MeanScaler, NOPScaler, StdScaler
 from gluonts.torch.util import lagged_sequence_values, unsqueeze_expand
@@ -248,40 +247,26 @@ class RMSNorm(nn.Module):
 class LagGPTAlibiModel(nn.Module):
     def __init__(
         self,
-        prediction_length: int,
-        context_length: int,
         scaling: str,
         input_size: int,
         n_layer: int,
         n_embd: int,
         n_head: int,
+        lags_seq: List[int],
+        max_context_length: int,
         distr_output=StudentTOutput(),
         num_parallel_samples: int = 100,
     ) -> None:
         super().__init__()
-        self.lags_seq = sorted(
-            list(
-                set(
-                    get_lags_for_frequency(freq_str="Q", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="M", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="W", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="D", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="H", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="T", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="S", num_default_lags=1)
-                )
-            )
-        )
+        self.lags_seq = lags_seq
         config = LTSMConfig(
             n_layer=n_layer,
             n_embd=n_embd,
             n_head=n_head,
-            block_size=context_length + prediction_length,
-            feature_size=input_size * (len(self.lags_seq)) + 2,
+            block_size=max_context_length,
+            feature_size=input_size * (len(self.lags_seq)) + 2 * input_size,
         )
         self.n_head = n_head
-        self.context_length = context_length
-        self.prediction_length = prediction_length
         self.num_parallel_samples = num_parallel_samples
 
         if scaling == "mean":
@@ -300,10 +285,6 @@ class LagGPTAlibiModel(nn.Module):
                 ln_f=RMSNorm(config.n_embd),
             )
         )
-
-    @property
-    def _past_length(self) -> int:
-        return self.context_length + max(self.lags_seq)
 
     def _init_weights(self, module: nn.Module) -> None:
         if isinstance(module, nn.Linear):
@@ -324,18 +305,17 @@ class LagGPTAlibiModel(nn.Module):
         scaled_past_target, loc, scale = self.scaler(past_target, past_observed_values)
 
         if future_target is not None:
-            future_length = future_target.shape[1]
             input = torch.cat(
                 (
-                    scaled_past_target[..., -self.context_length :],
-                    (future_target[..., : future_length - 1] - loc) / scale,
+                    scaled_past_target[..., max(self.lags_seq) :],
+                    (future_target[..., :-1] - loc) / scale,
                 ),
                 dim=-1,
             )
         else:
-            input = scaled_past_target[..., -self.context_length :]
+            input = scaled_past_target[..., max(self.lags_seq) :]
 
-        prior_input = (past_target[..., : -self.context_length] - loc) / scale
+        prior_input = (past_target[..., : max(self.lags_seq)] - loc) / scale
         lags = lagged_sequence_values(self.lags_seq, prior_input, input, dim=-1)
 
         static_feat = torch.cat((loc.abs().log1p(), scale.log()), dim=-1)

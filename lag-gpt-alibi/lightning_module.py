@@ -36,6 +36,8 @@ class LagGPTAlibiLightningModule(pl.LightningModule):
     def __init__(
         self,
         model_kwargs: dict,
+        context_length: int,
+        prediction_length: int,
         loss: DistributionLoss = NegativeLogLikelihood(),
         lr: float = 1e-3,
         weight_decay: float = 1e-8,
@@ -45,6 +47,8 @@ class LagGPTAlibiLightningModule(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.model = LagGPTAlibiModel(**self.hparams.model_kwargs)
+        self.context_length = self.hparams.context_length
+        self.prediction_length = self.hparams.prediction_length
         self.loss = self.hparams.loss
         self.lr = self.hparams.lr
         self.weight_decay = self.hparams.weight_decay
@@ -64,7 +68,7 @@ class LagGPTAlibiLightningModule(pl.LightningModule):
         )
 
         future_samples = []
-        for t in range(self.model.prediction_length):
+        for t in range(self.prediction_length):
             params, loc, scale = self.model.forward(
                 *args,
                 past_target=repeated_past_target,
@@ -81,7 +85,7 @@ class LagGPTAlibiLightningModule(pl.LightningModule):
             )
         concat_future_samples = torch.cat(future_samples, dim=-1)
         return concat_future_samples.reshape(
-            (-1, self.model.num_parallel_samples, self.model.prediction_length)
+            (-1, self.model.num_parallel_samples, self.prediction_length)
             + self.model.distr_output.event_shape,
         )
 
@@ -176,15 +180,13 @@ class LagGPTAlibiLightningModule(pl.LightningModule):
         )
         distr = self.model.distr_output.distribution(distr_args, loc, scale)
 
-        context_target = take_last(
-            past_target, dim=-1, num=self.model.context_length - 1
-        )
+        context_target = take_last(past_target, dim=-1, num=self.context_length - 1)
         target = torch.cat(
             (context_target, future_target_reshaped),
             dim=1,
         )
         context_observed = take_last(
-            past_observed_values, dim=-1, num=self.model.context_length - 1
+            past_observed_values, dim=-1, num=self.context_length - 1
         )
         observed_values = torch.cat((context_observed, future_observed_reshaped), dim=1)
 

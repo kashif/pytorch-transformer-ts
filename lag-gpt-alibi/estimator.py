@@ -2,11 +2,13 @@ from typing import Any, Dict, Iterable, Optional
 
 import pytorch_lightning as pl
 import torch
+
 from gluonts.core.component import validated
 from gluonts.dataset.common import Dataset
 from gluonts.dataset.field_names import FieldName
 from gluonts.dataset.loader import as_stacked_batches
 from gluonts.dataset.stat import calculate_dataset_statistics
+from gluonts.time_feature import get_lags_for_frequency
 from gluonts.itertools import Cyclic
 from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.model.estimator import PyTorchLightningEstimator
@@ -85,6 +87,7 @@ class LagGPTAlibiEstimator(PyTorchLightningEstimator):
         n_embd: int = 32,
         n_head: int = 4,
         scaling: Optional[str] = "mean",
+        max_context_length: int = 2048,
         lr: float = 1e-3,
         weight_decay: float = 1e-8,
         aug_prob: float = 0.1,
@@ -108,6 +111,22 @@ class LagGPTAlibiEstimator(PyTorchLightningEstimator):
         self.input_size = input_size
         self.prediction_length = prediction_length
         self.context_length = context_length or 10 * prediction_length
+        self.max_context_length = max(
+            max_context_length, self.context_length + self.prediction_length
+        )
+        self.lags_seq = sorted(
+            list(
+                set(
+                    get_lags_for_frequency(freq_str="Q", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="M", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="W", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="D", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="H", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="T", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="S", num_default_lags=1)
+                )
+            )
+        )
 
         self.n_head = n_head
         self.n_layer = n_layer
@@ -157,9 +176,9 @@ class LagGPTAlibiEstimator(PyTorchLightningEstimator):
 
     def create_lightning_module(self) -> pl.LightningModule:
         model_kwargs = {
+            "max_context_length": self.max_context_length,
+            "lags_seq": self.lags_seq,
             "input_size": self.input_size,
-            "prediction_length": self.prediction_length,
-            "context_length": self.context_length,
             "n_layer": self.n_layer,
             "n_embd": self.n_embd,
             "n_head": self.n_head,
@@ -175,6 +194,8 @@ class LagGPTAlibiEstimator(PyTorchLightningEstimator):
                 weight_decay=self.weight_decay,
                 aug_prob=self.aug_prob,
                 aug_rate=self.aug_rate,
+                prediction_length=self.prediction_length,
+                context_length=self.context_length,
                 model_kwargs=model_kwargs,
             )
         else:
@@ -184,6 +205,8 @@ class LagGPTAlibiEstimator(PyTorchLightningEstimator):
                 weight_decay=self.weight_decay,
                 aug_prob=self.aug_prob,
                 aug_rate=self.aug_rate,
+                prediction_length=self.prediction_length,
+                context_length=self.context_length,
                 model_kwargs=model_kwargs,
             )
 
@@ -202,7 +225,7 @@ class LagGPTAlibiEstimator(PyTorchLightningEstimator):
             start_field=FieldName.START,
             forecast_start_field=FieldName.FORECAST_START,
             instance_sampler=instance_sampler,
-            past_length=module.model._past_length,
+            past_length=self.context_length + max(self.lags_seq),
             future_length=self.prediction_length,
             time_series_fields=[FieldName.OBSERVED_VALUES],
             dummy_value=self.distr_output.value_in_support,
