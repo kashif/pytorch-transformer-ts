@@ -346,7 +346,7 @@ class LagGPTModel(nn.Module):
             n_embd=n_embd,
             n_head=n_head,
             block_size=max_context_length,
-            feature_size=input_size * (len(self.lags_seq)) + 2,
+            feature_size=input_size * (len(self.lags_seq)) + 2 * input_size,
             rope_scaling=rope_scaling,
         )
         self.num_parallel_samples = num_parallel_samples
