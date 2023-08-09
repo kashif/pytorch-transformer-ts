@@ -112,7 +112,9 @@ class LagGPTEstimator(PyTorchLightningEstimator):
         self.input_size = input_size
         self.prediction_length = prediction_length
         self.context_length = context_length or 10 * prediction_length
-        self.max_context_length = max(max_context_length, self.context_length)
+        self.max_context_length = max(
+            max_context_length, self.context_length + self.prediction_length
+        )
         self.lags_seq = sorted(
             list(
                 set(
