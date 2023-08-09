@@ -87,7 +87,7 @@ class LagGPTLightningModule(pl.LightningModule):
 
         concat_future_samples = torch.cat(future_samples, dim=-1)
         return concat_future_samples.reshape(
-            (-1, self.model.num_parallel_samples, self.model.prediction_length)
+            (-1, self.model.num_parallel_samples, self.prediction_length)
             + self.model.distr_output.event_shape,
         )
 
