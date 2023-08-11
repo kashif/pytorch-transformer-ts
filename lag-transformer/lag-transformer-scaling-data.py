@@ -3,7 +3,6 @@ from pathlib import Path
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from gluonts.evaluation import make_evaluation_predictions, Evaluator
 from gluonts.dataset.repository.datasets import get_dataset
 from pytorch_lightning.loggers import CSVLogger, WandbLogger
 
