@@ -200,7 +200,9 @@ class CausalSelfAttention(nn.Module):
         else:
             scaling_type = self.rope_scaling["type"]
             scaling_factor = self.rope_scaling["factor"]
-            if scaling_type == "linear":
+            if scaling_type == "nope":
+                self.rotary_emb = None
+            elif scaling_type == "linear":
                 self.rotary_emb = LlamaLinearScalingRotaryEmbedding(
                     self.n_embd // self.n_head,
                     max_position_embeddings=self.block_size,
@@ -229,18 +231,23 @@ class CausalSelfAttention(nn.Module):
             )
         rope_scaling_type = self.rope_scaling.get("type", None)
         rope_scaling_factor = self.rope_scaling.get("factor", None)
-        if rope_scaling_type is None or rope_scaling_type not in ["linear", "dynamic"]:
+        if rope_scaling_type is None or rope_scaling_type not in [
+            "linear",
+            "dynamic",
+            "nope",
+        ]:
             raise ValueError(
                 f"`rope_scaling`'s name field must be one of ['linear', 'dynamic'], got {rope_scaling_type}"
             )
-        if (
-            rope_scaling_factor is None
-            or not isinstance(rope_scaling_factor, float)
-            or rope_scaling_factor <= 1.0
-        ):
-            raise ValueError(
-                f"`rope_scaling`'s factor field must be an float > 1, got {rope_scaling_factor}"
-            )
+        if rope_scaling_type in ["linear", "dynamic"]:
+            if (
+                rope_scaling_factor is None
+                or not isinstance(rope_scaling_factor, float)
+                or rope_scaling_factor < 1.0
+            ):
+                raise ValueError(
+                    f"`rope_scaling`'s factor field must be an float >= 1, got {rope_scaling_factor}"
+                )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # batch size, sequence length, embedding dimensionality (n_embd)
@@ -254,8 +261,9 @@ class CausalSelfAttention(nn.Module):
         q = q.view(B, T, self.n_head, head_size).transpose(1, 2)  # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, head_size).transpose(1, 2)  # (B, nh, T, hs)
 
-        cos, sin = self.rotary_emb(device=v.device, dtype=v.dtype, seq_len=T)
-        q, k = apply_rotary_pos_emb(q, k, cos, sin, position_ids=None)
+        if self.rotary_emb is not None:
+            cos, sin = self.rotary_emb(device=v.device, dtype=v.dtype, seq_len=T)
+            q, k = apply_rotary_pos_emb(q, k, cos, sin, position_ids=None)
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         #  att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
