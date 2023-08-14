@@ -126,7 +126,6 @@ def scaled_dot_product_attention(
 @dataclass
 class LTSMConfig:
     feature_size: int = 3 + 6  # target + loc + scale + time features
-    block_size: int = 2048
     n_layer: int = 32
     n_head: int = 32
     n_embd: int = 4096
@@ -158,7 +157,6 @@ class CausalSelfAttention(nn.Module):
 
         self.n_head = config.n_head
         self.n_embd = config.n_embd
-        self.block_size = config.block_size
         self.rope_cache: Optional[torch.Tensor] = None
 
         # Alibi beta term
@@ -253,7 +251,6 @@ class LagGPTAlibiModel(nn.Module):
         n_embd: int,
         n_head: int,
         lags_seq: List[int],
-        max_context_length: int,
         distr_output=StudentTOutput(),
         num_parallel_samples: int = 100,
     ) -> None:
@@ -263,7 +260,6 @@ class LagGPTAlibiModel(nn.Module):
             n_layer=n_layer,
             n_embd=n_embd,
             n_head=n_head,
-            block_size=max_context_length,
             feature_size=input_size * (len(self.lags_seq)) + 2 * input_size,
         )
         self.n_head = n_head

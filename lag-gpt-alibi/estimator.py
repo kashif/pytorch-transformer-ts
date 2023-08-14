@@ -87,7 +87,6 @@ class LagGPTAlibiEstimator(PyTorchLightningEstimator):
         n_embd: int = 32,
         n_head: int = 4,
         scaling: Optional[str] = "mean",
-        max_context_length: int = 2048,
         lr: float = 1e-3,
         weight_decay: float = 1e-8,
         aug_prob: float = 0.1,
@@ -111,9 +110,6 @@ class LagGPTAlibiEstimator(PyTorchLightningEstimator):
         self.input_size = input_size
         self.prediction_length = prediction_length
         self.context_length = context_length or 10 * prediction_length
-        self.max_context_length = max(
-            max_context_length, self.context_length + self.prediction_length
-        )
         self.lags_seq = sorted(
             list(
                 set(
@@ -176,7 +172,6 @@ class LagGPTAlibiEstimator(PyTorchLightningEstimator):
 
     def create_lightning_module(self) -> pl.LightningModule:
         model_kwargs = {
-            "max_context_length": self.max_context_length,
             "lags_seq": self.lags_seq,
             "input_size": self.input_size,
             "n_layer": self.n_layer,
