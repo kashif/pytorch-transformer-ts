@@ -74,6 +74,7 @@ class LagGPTLightningModule(pl.LightningModule):
                 *args,
                 past_target=repeated_past_target,
                 past_observed_values=repeated_past_observed_values,
+                is_test=True,
             )
             sliced_params = [p[:, -1:] for p in params]
             distr = self.model.distr_output.distribution(sliced_params, loc, scale)
@@ -84,6 +85,8 @@ class LagGPTLightningModule(pl.LightningModule):
             repeated_past_observed_values = torch.cat(
                 (repeated_past_observed_values, torch.ones_like(sample)), dim=1
             )
+
+        self.model.reset_cache()
 
         concat_future_samples = torch.cat(future_samples, dim=-1)
         return concat_future_samples.reshape(

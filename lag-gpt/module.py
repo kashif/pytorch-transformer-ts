@@ -29,10 +29,22 @@ class Block(nn.Module):
         self.rms_2 = RMSNorm(config.n_embd)
         self.mlp = MLP(config)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.attn(self.rms_1(x))
-        x = x + self.mlp(self.rms_2(x))
-        return x
+        self.y_cache = None
+
+    def forward(self, x: torch.Tensor, is_test: bool) -> torch.Tensor:
+        if is_test and self.y_cache is not None:
+            # Only use the most recent one, rest is in cache
+            x = x[:,-1:]
+
+        x = x + self.attn(self.rms_1(x), is_test)
+        y = x + self.mlp(self.rms_2(x))
+
+        if is_test:
+            if self.y_cache is None:
+                self.y_cache = y # Build cache
+            else:
+                self.y_cache = torch.cat([self.y_cache, y], dim=1)[:,1:] # Update cache
+        return y
 
 
 class LlamaRotaryEmbedding(torch.nn.Module):
@@ -178,8 +190,10 @@ class CausalSelfAttention(nn.Module):
         super().__init__()
         assert config.n_embd % config.n_head == 0
 
-        # key, query, value projections for all heads, but in a batch
-        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=False)
+        # query projections for all heads, but in a batch
+        self.q_proj = nn.Linear(config.n_embd, config.n_embd, bias=False)
+        # key, value projections
+        self.kv_proj = nn.Linear(config.n_embd, 2 * config.n_embd, bias=False)
         # output projection
         self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=False)
 
@@ -191,6 +205,7 @@ class CausalSelfAttention(nn.Module):
         self._rope_scaling_validation()
 
         self._init_rope()
+        self.kv_cache = None
 
     def _init_rope(self):
         if self.rope_scaling is None:
@@ -249,17 +264,34 @@ class CausalSelfAttention(nn.Module):
                     f"`rope_scaling`'s factor field must be an float >= 1, got {rope_scaling_factor}"
                 )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, is_test: bool) -> torch.Tensor:
         # batch size, sequence length, embedding dimensionality (n_embd)
         (B, T, C) = x.size()
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
+        if is_test:
+            # Optimized for single next prediction
+            q = self.q_proj(x[:,-1:])
+
+            if self.kv_cache is not None:
+                # Update cache
+                k, v = self.kv_proj(x[:,-1:]).split(self.n_embd, dim=2)
+                k = torch.cat([self.kv_cache[0], k], dim=1)[:,1:]
+                v = torch.cat([self.kv_cache[1], v], dim=1)[:,1:]
+                self.kv_cache = k, v
+            else:
+                # Build cache
+                k, v = self.kv_proj(x).split(self.n_embd, dim=2)
+                self.kv_cache = k, v
+        else:
+            # Business as usual
+            q = self.q_proj(x)
+            k, v = self.kv_proj(x).split(self.n_embd, dim=2)
 
         head_size = C // self.n_head
-        k = k.view(B, T, self.n_head, head_size).transpose(1, 2)  # (B, nh, T, hs)
-        q = q.view(B, T, self.n_head, head_size).transpose(1, 2)  # (B, nh, T, hs)
-        v = v.view(B, T, self.n_head, head_size).transpose(1, 2)  # (B, nh, T, hs)
+        k = k.view(B, -1, self.n_head, head_size).transpose(1, 2)  # (B, nh, T, hs)
+        q = q.view(B, -1, self.n_head, head_size).transpose(1, 2)  # (B, nh, T, hs)
+        v = v.view(B, -1, self.n_head, head_size).transpose(1, 2)  # (B, nh, T, hs)
 
         if self.rotary_emb is not None:
             cos, sin = self.rotary_emb(device=v.device, dtype=v.dtype, seq_len=T)
@@ -420,6 +452,7 @@ class LagGPTModel(nn.Module):
         past_target: torch.Tensor,
         past_observed_values: torch.Tensor,
         future_target: Optional[torch.Tensor] = None,
+        is_test: bool = False,
     ) -> torch.Tensor:
         transformer_input, loc, scale = self.prepare_input(
             past_target=past_target,
@@ -433,8 +466,17 @@ class LagGPTModel(nn.Module):
         )  # token embeddings of shape (b, t, n_embd)
 
         for block in self.transformer.h:
-            x = block(x)
+            x = block(x, is_test)
         x = self.transformer.ln_f(x)
 
         params = self.param_proj(x)
         return params, loc, scale
+
+    def reset_cache(self) -> None:
+        """
+        Resets all cached key-values in attention.
+        Has to be called after prediction loop in predictor
+        """
+        for block in self.transformer.h:
+            block.y_cache = None
+            block.attn.kv_cache = None
