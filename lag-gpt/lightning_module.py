@@ -70,11 +70,11 @@ class LagGPTLightningModule(pl.LightningModule):
 
         future_samples = []
         for t in range(self.prediction_length):
-            params, loc, scale = self.model.forward(
+            params, loc, scale = self.model(
                 *args,
                 past_target=repeated_past_target,
                 past_observed_values=repeated_past_observed_values,
-                is_test=True,
+                is_test=False,
             )
             sliced_params = [p[:, -1:] for p in params]
             distr = self.model.distr_output.distribution(sliced_params, loc, scale)
