@@ -235,7 +235,7 @@ class LagGPTModel(nn.Module):
             n_embd=n_embd,
             n_head=n_head,
             block_size=context_length + prediction_length,
-            feature_size=input_size * (len(self.lags_seq)) + 2,
+            feature_size=input_size * (len(self.lags_seq)) + 2 * input_size + 6,
         )
         self.context_length = context_length
         self.prediction_length = prediction_length
@@ -276,6 +276,8 @@ class LagGPTModel(nn.Module):
         self,
         past_target: torch.Tensor,
         past_observed_values: torch.Tensor,
+        past_time_feat: torch.Tensor,
+        future_time_feat: torch.Tensor,
         future_target: Optional[torch.Tensor] = None,
     ):
         scaled_past_target, loc, scale = self.scaler(past_target, past_observed_values)
@@ -292,7 +294,19 @@ class LagGPTModel(nn.Module):
         else:
             input = scaled_past_target[..., -self.context_length :]
 
-        prior_input = (past_target[..., : -self.context_length] - loc) / scale
+        time_feat = (
+            torch.cat(
+                (
+                    past_time_feat[..., max(self.lags_seq) :, :],
+                    future_time_feat[..., :-1, :],
+                ),
+                dim=1,
+            )
+            if future_time_feat is not None
+            else past_time_feat[..., max(self.lags_seq) :, :]
+        )
+
+        prior_input = (past_target[..., : max(self.lags_seq)] - loc) / scale
         lags = lagged_sequence_values(self.lags_seq, prior_input, input, dim=-1)
 
         static_feat = torch.cat((loc.abs().log1p(), scale.log()), dim=-1)
@@ -300,18 +314,22 @@ class LagGPTModel(nn.Module):
             static_feat, dim=-2, size=lags.shape[-2]
         )
 
-        return torch.cat((lags, expanded_static_feat), dim=-1), loc, scale
+        return torch.cat((lags, expanded_static_feat, time_feat), dim=-1), loc, scale
 
     def forward(
         self,
         past_target: torch.Tensor,
         past_observed_values: torch.Tensor,
+        past_time_feat: torch.Tensor,
+        future_time_feat: torch.Tensor,
         future_target: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         transformer_input, loc, scale = self.prepare_input(
             past_target=past_target,
             past_observed_values=past_observed_values,
             future_target=future_target,
+            past_time_feat=past_time_feat,
+            future_time_feat=future_time_feat,
         )
 
         # forward the LLaMA model itself

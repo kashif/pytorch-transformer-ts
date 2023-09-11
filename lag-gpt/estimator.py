@@ -8,6 +8,11 @@ from gluonts.dataset.common import Dataset
 from gluonts.dataset.field_names import FieldName
 from gluonts.dataset.loader import as_stacked_batches
 from gluonts.dataset.stat import calculate_dataset_statistics
+from gluonts.time_feature import (
+    get_lags_for_frequency,
+    TimeFeature,
+    time_features_from_frequency_str,
+)
 from gluonts.itertools import Cyclic
 from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
 from gluonts.transform import (
@@ -16,6 +21,7 @@ from gluonts.transform import (
     ValidationSplitSampler,
     TestSplitSampler,
     AddObservedValuesIndicator,
+    AddTimeFeatures,
     ExpectedNumInstanceSampler,
     DummyValueImputation,
     InstanceSampler,
@@ -27,7 +33,12 @@ from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 
 from lightning_module import LagGPTLightningModule
 
-PREDICTION_INPUT_NAMES = ["past_target", "past_observed_values"]
+PREDICTION_INPUT_NAMES = [
+    "past_target",
+    "past_observed_values",
+    "past_time_feat",
+    "future_time_feat",
+]
 
 TRAINING_INPUT_NAMES = PREDICTION_INPUT_NAMES + [
     "future_target",
@@ -147,6 +158,13 @@ class LagGPTEstimator(PyTorchLightningEstimator):
     def create_transformation(self) -> Transformation:
         return Chain(
             [
+                AddTimeFeatures(
+                    start_field=FieldName.START,
+                    target_field=FieldName.TARGET,
+                    output_field=FieldName.FEAT_TIME,
+                    time_features=time_features_from_frequency_str("S"),
+                    pred_length=self.prediction_length,
+                ),
                 # FilterTransformation(lambda x: sum(abs(x[FieldName.TARGET])) > 0),
                 AddObservedValuesIndicator(
                     target_field=FieldName.TARGET,
@@ -205,7 +223,7 @@ class LagGPTEstimator(PyTorchLightningEstimator):
             instance_sampler=instance_sampler,
             past_length=module.model._past_length,
             future_length=self.prediction_length,
-            time_series_fields=[FieldName.OBSERVED_VALUES],
+            time_series_fields=[FieldName.FEAT_TIME, FieldName.OBSERVED_VALUES],
             dummy_value=self.distr_output.value_in_support,
         )
 
@@ -258,5 +276,5 @@ class LagGPTEstimator(PyTorchLightningEstimator):
             prediction_net=module,
             batch_size=self.batch_size,
             prediction_length=self.prediction_length,
-            device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+            device="cuda" if torch.cuda.is_available() else "cpu",
         )
