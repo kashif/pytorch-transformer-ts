@@ -34,16 +34,18 @@ class Block(nn.Module):
     def forward(self, x: torch.Tensor, is_test: bool) -> torch.Tensor:
         if is_test and self.y_cache is not None:
             # Only use the most recent one, rest is in cache
-            x = x[:,-1:]
+            x = x[:, -1:]
 
         x = x + self.attn(self.rms_1(x), is_test)
         y = x + self.mlp(self.rms_2(x))
 
         if is_test:
             if self.y_cache is None:
-                self.y_cache = y # Build cache
+                self.y_cache = y  # Build cache
             else:
-                self.y_cache = torch.cat([self.y_cache, y], dim=1)[:,1:] # Update cache
+                self.y_cache = torch.cat([self.y_cache, y], dim=1)[
+                    :, 1:
+                ]  # Update cache
         return y
 
 
@@ -271,13 +273,13 @@ class CausalSelfAttention(nn.Module):
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         if is_test:
             # Optimized for single next prediction
-            q = self.q_proj(x[:,-1:])
+            q = self.q_proj(x[:, -1:])
 
             if self.kv_cache is not None:
                 # Update cache
-                k, v = self.kv_proj(x[:,-1:]).split(self.n_embd, dim=2)
-                k = torch.cat([self.kv_cache[0], k], dim=1)[:,1:]
-                v = torch.cat([self.kv_cache[1], v], dim=1)[:,1:]
+                k, v = self.kv_proj(x[:, -1:]).split(self.n_embd, dim=2)
+                k = torch.cat([self.kv_cache[0], k], dim=1)[:, 1:]
+                v = torch.cat([self.kv_cache[1], v], dim=1)[:, 1:]
                 self.kv_cache = k, v
             else:
                 # Build cache
@@ -386,7 +388,7 @@ class LagGPTModel(nn.Module):
             n_embd=n_embd,
             n_head=n_head,
             block_size=max_context_length,
-            feature_size=input_size * (len(self.lags_seq)) + 2 * input_size,
+            feature_size=input_size * (len(self.lags_seq)) + 2 * input_size + 6,
             rope_scaling=rope_scaling,
         )
         self.num_parallel_samples = num_parallel_samples
@@ -422,6 +424,8 @@ class LagGPTModel(nn.Module):
         self,
         past_target: torch.Tensor,
         past_observed_values: torch.Tensor,
+        past_time_feat: torch.Tensor,
+        future_time_feat: torch.Tensor,
         future_target: Optional[torch.Tensor] = None,
     ):
         scaled_past_target, loc, scale = self.scaler(past_target, past_observed_values)
@@ -437,6 +441,18 @@ class LagGPTModel(nn.Module):
         else:
             input = scaled_past_target[..., max(self.lags_seq) :]
 
+        time_feat = (
+            torch.cat(
+                (
+                    past_time_feat[..., max(self.lags_seq) :, :],
+                    future_time_feat[..., :-1, :],
+                ),
+                dim=1,
+            )
+            if future_time_feat is not None
+            else past_time_feat[..., max(self.lags_seq) :, :]
+        )
+
         prior_input = (past_target[..., : max(self.lags_seq)] - loc) / scale
         lags = lagged_sequence_values(self.lags_seq, prior_input, input, dim=-1)
 
@@ -445,12 +461,14 @@ class LagGPTModel(nn.Module):
             static_feat, dim=-2, size=lags.shape[-2]
         )
 
-        return torch.cat((lags, expanded_static_feat), dim=-1), loc, scale
+        return torch.cat((lags, expanded_static_feat, time_feat), dim=-1), loc, scale
 
     def forward(
         self,
         past_target: torch.Tensor,
         past_observed_values: torch.Tensor,
+        past_time_feat: torch.Tensor,
+        future_time_feat: torch.Tensor,
         future_target: Optional[torch.Tensor] = None,
         is_test: bool = False,
     ) -> torch.Tensor:
@@ -458,6 +476,8 @@ class LagGPTModel(nn.Module):
             past_target=past_target,
             past_observed_values=past_observed_values,
             future_target=future_target,
+            past_time_feat=past_time_feat,
+            future_time_feat=future_time_feat,
         )
 
         # forward the LLaMA model itself
