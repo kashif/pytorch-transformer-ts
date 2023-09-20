@@ -1,6 +1,6 @@
 orjson
 torch
-gluonts>=0.13.1
+gluonts>=0.13.5
 pytorch-lightning
 datasets
 xformers
