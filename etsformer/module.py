@@ -4,10 +4,11 @@ import torch
 import torch.nn as nn
 from etsformer_pytorch import ETSFormer
 from gluonts.core.component import validated
-from gluonts.torch.scaler import MeanScaler, NOPScaler
 from gluonts.time_feature import get_lags_for_frequency
 from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.modules.feature import FeatureEmbedder
+from gluonts.torch.scaler import MeanScaler, NOPScaler
+
 
 class ETSformerModel(nn.Module):
     @validated()
@@ -250,7 +251,6 @@ class ETSformerModel(nn.Module):
         future_time_feat: torch.Tensor,
         num_parallel_samples: Optional[int] = None,
     ) -> torch.Tensor:
-
         if num_parallel_samples is None:
             num_parallel_samples = self.num_parallel_samples
 

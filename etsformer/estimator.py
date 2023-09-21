@@ -6,14 +6,10 @@ from gluonts.dataset.common import Dataset
 from gluonts.dataset.field_names import FieldName
 from gluonts.dataset.loader import as_stacked_batches
 from gluonts.itertools import Cyclic
-from gluonts.time_feature import (
-    TimeFeature, 
-    time_features_from_frequency_str
-)
-from gluonts.transform.sampler import InstanceSampler
+from gluonts.time_feature import TimeFeature, time_features_from_frequency_str
+from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.model.estimator import PyTorchLightningEstimator
 from gluonts.torch.model.predictor import PyTorchPredictor
-from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
 from gluonts.transform import (
     AddAgeFeature,
@@ -24,18 +20,16 @@ from gluonts.transform import (
     ExpectedNumInstanceSampler,
     InstanceSplitter,
     RemoveFields,
-    SelectFields,
     SetField,
     TestSplitSampler,
     Transformation,
     ValidationSplitSampler,
     VstackFeatures,
 )
+from gluonts.transform.sampler import InstanceSampler
 
 from lightning_module import ETSformerLightningModule
 from module import ETSformerModel
-
-
 
 PREDICTION_INPUT_NAMES = [
     "feat_static_cat",
