@@ -53,7 +53,8 @@ class ETSformerEstimator(PyTorchLightningEstimator):
         freq: str,
         prediction_length: int,
         # ETSformer arguments
-        nhead: int,
+        model_dim: int = 64,
+        nhead: int = 4,
         num_layers: int = 2,
         k_largest_amplitudes: int = 4,
         embed_kernel_size: int = 3,
@@ -67,7 +68,7 @@ class ETSformerEstimator(PyTorchLightningEstimator):
         embedding_dimension: Optional[List[int]] = None,
         distr_output: DistributionOutput = StudentTOutput(),
         loss: DistributionLoss = NegativeLogLikelihood(),
-        scaling: bool = True,
+        scaling: Optional[str] = "std",
         lags_seq: Optional[List[int]] = None,
         time_features: Optional[List[TimeFeature]] = None,
         num_parallel_samples: int = 100,
@@ -92,6 +93,7 @@ class ETSformerEstimator(PyTorchLightningEstimator):
         self.loss = loss
 
         self.input_size = input_size
+        self.model_dim = model_dim
         self.nhead = nhead
         self.num_layers = num_layers
         self.k_largest_amplitudes = k_largest_amplitudes
@@ -276,6 +278,7 @@ class ETSformerEstimator(PyTorchLightningEstimator):
             cardinality=self.cardinality,
             embedding_dimension=self.embedding_dimension,
             # ETSformer arguments
+            model_dim=self.model_dim,
             nhead=self.nhead,
             num_layers=self.num_layers,
             dropout=self.dropout,
