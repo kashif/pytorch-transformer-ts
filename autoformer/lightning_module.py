@@ -2,6 +2,7 @@ import pytorch_lightning as pl
 import torch
 from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
 from gluonts.torch.util import weighted_average
+
 from module import AutoformerModel
 
 
@@ -59,6 +60,7 @@ class AutoformerLightningModule(pl.LightningModule):
 
         (
             autoformer_inputs,
+            loc,
             scale,
             dynamic_features,
             _,
@@ -72,7 +74,7 @@ class AutoformerLightningModule(pl.LightningModule):
             future_target,
         )
         params = self.model.output_params(autoformer_inputs, dynamic_features)
-        distr = self.model.output_distribution(params, scale)
+        distr = self.model.output_distribution(params, loc=loc, scale=scale)
 
         loss_values = self.loss(distr, future_target)
 
