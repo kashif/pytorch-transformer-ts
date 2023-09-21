@@ -182,6 +182,13 @@ class PyraformerSSModel(nn.Module):
         self.softplus = nn.Softplus()
         self.distr_output = distr_output
 
+        if scaling == "mean" or scaling == True:
+            self.scaler = MeanScaler(keepdim=True, dim=1)
+        elif scaling == "std":
+            self.scaler = StdScaler(keepdim=True, dim=1)
+        else:
+            self.scaler = NOPScaler(keepdim=True, dim=1)
+
     def forward(self, data):
         enc_output = self.encoder(data)
 
