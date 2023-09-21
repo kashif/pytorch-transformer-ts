@@ -198,7 +198,6 @@ class HopfieldEstimator(PyTorchEstimator):
         )
 
     def create_training_network(self, device: torch.device) -> HopfieldTrainingNetwork:
-
         training_network = HopfieldTrainingNetwork(
             input_size=self.input_size,
             num_heads=self.num_heads,
@@ -226,7 +225,6 @@ class HopfieldEstimator(PyTorchEstimator):
         trained_network: HopfieldTrainingNetwork,
         device: torch.device,
     ) -> Predictor:
-
         prediction_network = HopfieldPredictionNetwork(
             input_size=self.input_size,
             num_heads=self.num_heads,

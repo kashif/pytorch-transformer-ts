@@ -81,9 +81,11 @@ class HopfieldModel(nn.Module):
             dropout=dropout,
             activation=activation,
         )
-        self.transformer_encoder = nn.TransformerEncoder(
+        encoder_layer.self_attn = encoder_layer.hopfield_association
+        transformer_encoder = nn.TransformerEncoder(
             encoder_layer, num_layers=num_encoder_layers
         )
+
 
         decoder_association_self = Hopfield(input_size=d_model, num_heads=nhead)
         decoder_association_cross = Hopfield(input_size=d_model, num_heads=nhead)
@@ -94,8 +96,19 @@ class HopfieldModel(nn.Module):
             dropout=dropout,
             activation=activation,
         )
-        self.transformer_decoder = nn.TransformerDecoder(
+        decoder_layer.self_attn = decoder_layer.hopfield_association_self
+        decoder_layer.multihead_attn = decoder_layer.hopfield_association_cross
+
+        transformer_decoder = nn.TransformerDecoder(
             decoder_layer, num_layers=num_decoder_layers
+        )
+        
+        self.transformer = nn.Transformer(
+            d_model=d_model,
+            nhead=nhead,
+            custom_encoder=transformer_encoder,
+            custom_decoder=transformer_decoder,
+            batch_first=True,
         )
 
         # causal decoder tgt mask
@@ -257,8 +270,8 @@ class HopfieldModel(nn.Module):
         enc_input = embedded_input[:, : self.context_length, ...]
         dec_input = embedded_input[:, self.context_length :, ...]
 
-        enc_out = self.transformer_encoder(enc_input)
-        dec_output = self.transformer_decoder(
+        enc_out = self.transformer.encoder(enc_input)
+        dec_output = self.transformer.decoder(
             dec_input, enc_out, tgt_mask=self.tgt_mask
         )
 
@@ -295,7 +308,7 @@ class HopfieldModel(nn.Module):
             past_observed_values,
         )
 
-        enc_out = self.transformer_encoder(self.embed(encoder_inputs))
+        enc_out = self.transformer.encoder(self.embed(encoder_inputs))
 
         repeated_loc = loc.repeat_interleave(repeats=self.num_parallel_samples, dim=0)
         repeated_scale = scale.repeat_interleave(
@@ -341,7 +354,7 @@ class HopfieldModel(nn.Module):
                 (reshaped_lagged_sequence, repeated_features[:, : k + 1]), dim=-1
             )
 
-            output = self.transformer_decoder(self.embed(decoder_input), repeated_enc_out)
+            output = self.transformer.decoder(self.embed(decoder_input), repeated_enc_out)
 
             params = self.param_proj(output[:, -1:])
             distr = self.output_distribution(
