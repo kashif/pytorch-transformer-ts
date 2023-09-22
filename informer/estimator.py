@@ -256,7 +256,7 @@ class InformerEstimator(PyTorchLightningEstimator):
             field_names=TRAINING_INPUT_NAMES,
             output_type=torch.tensor,
         )
-        
+
     def create_predictor(
         self,
         transformation: Transformation,

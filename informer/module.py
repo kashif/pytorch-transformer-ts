@@ -398,7 +398,7 @@ class InformerModel(nn.Module):
             cardinalities=cardinality,
             embedding_dims=self.embedding_dimension,
         )
-        if scaling == "mean" or scaling == True:
+        if scaling == "mean" or scaling is True:
             self.scaler = MeanScaler(keepdim=True, dim=1)
         elif scaling == "std":
             self.scaler = StdScaler(keepdim=True, dim=1)
@@ -406,7 +406,9 @@ class InformerModel(nn.Module):
             self.scaler = NOPScaler(keepdim=True, dim=1)
 
         # total feature size
-        self.embed = nn.Linear(self.input_size * len(self.lags_seq) + self._number_of_features, d_model)
+        self.embed = nn.Linear(
+            self.input_size * len(self.lags_seq) + self._number_of_features, d_model
+        )
 
         self.context_length = context_length
         self.prediction_length = prediction_length
@@ -485,7 +487,7 @@ class InformerModel(nn.Module):
             sum(self.embedding_dimension)
             + self.num_feat_dynamic_real
             + self.num_feat_static_real
-            + self.input_size * 2 # the log(scale) and log(abs(loc)) features
+            + self.input_size * 2  # the log(scale) and log(abs(loc)) features
         )
 
     @property
@@ -576,7 +578,7 @@ class InformerModel(nn.Module):
         inputs = (
             (torch.cat((past_target, future_target), dim=1) - loc) / scale
             if future_target is not None
-            else (past_target -loc) / scale
+            else (past_target - loc) / scale
         )
 
         inputs_length = (
@@ -594,7 +596,11 @@ class InformerModel(nn.Module):
 
         # embeddings
         embedded_cat = self.embedder(feat_static_cat)
-        log_abs_loc = loc.sign() * loc.abs().log1p() if self.input_size == 1 else  loc.squeeze(1).sign() * loc.squeeze(1).abs().log1p()
+        log_abs_loc = (
+            loc.sign() * loc.abs().log1p()
+            if self.input_size == 1
+            else loc.squeeze(1).sign() * loc.squeeze(1).abs().log1p()
+        )
         log_scale = scale.log() if self.input_size == 1 else scale.squeeze(1).log()
         static_feat = torch.cat(
             (embedded_cat, feat_static_real, log_abs_loc, log_scale),
@@ -653,7 +659,6 @@ class InformerModel(nn.Module):
         future_time_feat: torch.Tensor,
         num_parallel_samples: Optional[int] = None,
     ) -> torch.Tensor:
-
         if num_parallel_samples is None:
             num_parallel_samples = self.num_parallel_samples
 
@@ -672,8 +677,10 @@ class InformerModel(nn.Module):
             repeats=self.num_parallel_samples, dim=0
         )
 
-        repeated_past_target = (past_target.repeat_interleave(repeats=self.num_parallel_samples, dim=0) - repeated_loc)/ repeated_scale
-        
+        repeated_past_target = (
+            past_target.repeat_interleave(repeats=self.num_parallel_samples, dim=0)
+            - repeated_loc
+        ) / repeated_scale
 
         expanded_static_feat = static_feat.unsqueeze(1).expand(
             -1, future_time_feat.shape[1], -1
@@ -712,11 +719,14 @@ class InformerModel(nn.Module):
             output = self.decoder(self.embed(decoder_input), repeated_enc_out)
 
             params = self.param_proj(output[:, -1:])
-            distr = self.output_distribution(params, scale=repeated_scale, loc=repeated_loc)
+            distr = self.output_distribution(
+                params, scale=repeated_scale, loc=repeated_loc
+            )
             next_sample = distr.sample()
 
             repeated_past_target = torch.cat(
-                (repeated_past_target, (next_sample-repeated_loc) / repeated_scale), dim=1
+                (repeated_past_target, (next_sample - repeated_loc) / repeated_scale),
+                dim=1,
             )
             future_samples.append(next_sample)
 
