@@ -53,10 +53,11 @@ class InformerEstimator(PyTorchLightningEstimator):
         freq: str,
         prediction_length: int,
         # Informer arguments
-        nhead: int,
         num_encoder_layers: int,
         num_decoder_layers: int,
         dim_feedforward: int,
+        d_model: int = 64,
+        nhead: int = 4,
         input_size: int = 1,
         activation: str = "gelu",
         dropout: float = 0.1,
@@ -71,7 +72,7 @@ class InformerEstimator(PyTorchLightningEstimator):
         embedding_dimension: Optional[List[int]] = None,
         distr_output: DistributionOutput = StudentTOutput(),
         loss: DistributionLoss = NegativeLogLikelihood(),
-        scaling: bool = True,
+        scaling: Optional[str] = "std",
         lags_seq: Optional[List[int]] = None,
         time_features: Optional[List[TimeFeature]] = None,
         num_parallel_samples: int = 100,
@@ -96,6 +97,7 @@ class InformerEstimator(PyTorchLightningEstimator):
         self.loss = loss
 
         self.input_size = input_size
+        self.d_model = d_model
         self.nhead = nhead
         self.num_encoder_layers = num_encoder_layers
         self.num_decoder_layers = num_decoder_layers
@@ -284,6 +286,7 @@ class InformerEstimator(PyTorchLightningEstimator):
             cardinality=self.cardinality,
             embedding_dimension=self.embedding_dimension,
             # Informer arguments
+            d_model=self.d_model,
             nhead=self.nhead,
             num_encoder_layers=self.num_encoder_layers,
             num_decoder_layers=self.num_decoder_layers,
