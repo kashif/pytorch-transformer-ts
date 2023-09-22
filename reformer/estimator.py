@@ -53,9 +53,10 @@ class ReformerEstimator(PyTorchLightningEstimator):
         freq: str,
         prediction_length: int,
         # Reformer arguments
-        nhead: int,
         num_encoder_layers: int,
         num_decoder_layers: int,
+        d_model: int = 64,
+        nhead: int = 4,
         input_size: int = 1,
         dropout: float = 0.1,
         context_length: Optional[int] = None,
@@ -66,7 +67,7 @@ class ReformerEstimator(PyTorchLightningEstimator):
         embedding_dimension: Optional[List[int]] = None,
         distr_output: DistributionOutput = StudentTOutput(),
         loss: DistributionLoss = NegativeLogLikelihood(),
-        scaling: bool = True,
+        scaling: Optional[str] = "std",
         lags_seq: Optional[List[int]] = None,
         time_features: Optional[List[TimeFeature]] = None,
         num_parallel_samples: int = 100,
@@ -91,6 +92,7 @@ class ReformerEstimator(PyTorchLightningEstimator):
         self.loss = loss
 
         self.input_size = input_size
+        self.d_model = d_model
         self.nhead = nhead
         self.num_encoder_layers = num_encoder_layers
         self.num_decoder_layers = num_decoder_layers
@@ -274,6 +276,7 @@ class ReformerEstimator(PyTorchLightningEstimator):
             cardinality=self.cardinality,
             embedding_dimension=self.embedding_dimension,
             # Reformer arguments
+            d_model=self.d_model,
             nhead=self.nhead,
             num_encoder_layers=self.num_encoder_layers,
             num_decoder_layers=self.num_decoder_layers,

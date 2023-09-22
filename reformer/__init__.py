@@ -1,6 +1,6 @@
-from .estimator import TransformerEstimator
-from .lightning_module import TransformerLightningModule
-from .module import TransformerModel
+from .estimator import ReformerEstimator
+from .lightning_module import ReformerLightningModule
+from .module import ReformerModel
 
 __all__ = [
     "ReformerModel",
