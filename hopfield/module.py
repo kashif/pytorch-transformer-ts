@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple
+from typing import List, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -22,12 +22,14 @@ class HopfieldModel(nn.Module):
         num_feat_static_real: int,
         num_feat_static_cat: int,
         cardinality: List[int],
-        # transformer arguments
+        # hopfield arguments
         d_model: int,
         nhead: int,
         num_encoder_layers: int,
         num_decoder_layers: int,
         dim_feedforward: int,
+        enc_beta: Optional[Union[float, torch.Tensor]] = None,
+        dec_beta: Optional[Union[float, torch.Tensor]] = None,
         activation: str = "relu",
         dropout: float = 0.1,
         # univariate input
@@ -58,7 +60,7 @@ class HopfieldModel(nn.Module):
             cardinalities=cardinality,
             embedding_dims=self.embedding_dimension,
         )
-        if scaling == "mean" or scaling == True:
+        if scaling == "mean" or scaling is True:
             self.scaler = MeanScaler(keepdim=True, dim=1)
         elif scaling == "std":
             self.scaler = StdScaler(keepdim=True, dim=1)
@@ -66,7 +68,11 @@ class HopfieldModel(nn.Module):
             self.scaler = NOPScaler(keepdim=True, dim=1)
 
         # project input features to d_model
-        self.embed = nn.Linear(self.input_size * len(self.lags_seq) + self._number_of_features, d_model, bias=False)
+        self.embed = nn.Linear(
+            self.input_size * len(self.lags_seq) + self._number_of_features,
+            d_model,
+            bias=False,
+        )
 
         self.context_length = context_length
         self.prediction_length = prediction_length
@@ -74,7 +80,9 @@ class HopfieldModel(nn.Module):
         self.param_proj = distr_output.get_args_proj(d_model)
 
         # [B, T, d_model] where d_model / nhead is int
-        encoder_association = Hopfield(input_size=d_model, num_heads=nhead)
+        encoder_association = Hopfield(
+            input_size=d_model, num_heads=nhead, dropout=dropout, scaling=enc_beta
+        )
         encoder_layer = HopfieldEncoderLayer(
             encoder_association,
             dim_feedforward=dim_feedforward,
@@ -86,9 +94,12 @@ class HopfieldModel(nn.Module):
             encoder_layer, num_layers=num_encoder_layers
         )
 
-
-        decoder_association_self = Hopfield(input_size=d_model, num_heads=nhead)
-        decoder_association_cross = Hopfield(input_size=d_model, num_heads=nhead)
+        decoder_association_self = Hopfield(
+            input_size=d_model, num_heads=nhead, dropout=dropout, scaling=dec_beta
+        )
+        decoder_association_cross = Hopfield(
+            input_size=d_model, num_heads=nhead, dropout=dropout, scaling=dec_beta
+        )
         decoder_layer = HopfieldDecoderLayer(
             hopfield_association_self=decoder_association_self,
             hopfield_association_cross=decoder_association_cross,
@@ -102,7 +113,7 @@ class HopfieldModel(nn.Module):
         transformer_decoder = nn.TransformerDecoder(
             decoder_layer, num_layers=num_decoder_layers
         )
-        
+
         self.transformer = nn.Transformer(
             d_model=d_model,
             nhead=nhead,
@@ -123,7 +134,7 @@ class HopfieldModel(nn.Module):
             sum(self.embedding_dimension)
             + self.num_feat_dynamic_real
             + self.num_feat_static_real
-            + self.input_size * 2 # the log(scale) and log(abs(loc)) features
+            + self.input_size * 2  # the log(scale) and log(abs(loc)) features
         )
 
     @property
@@ -354,7 +365,9 @@ class HopfieldModel(nn.Module):
                 (reshaped_lagged_sequence, repeated_features[:, : k + 1]), dim=-1
             )
 
-            output = self.transformer.decoder(self.embed(decoder_input), repeated_enc_out)
+            output = self.transformer.decoder(
+                self.embed(decoder_input), repeated_enc_out
+            )
 
             params = self.param_proj(output[:, -1:])
             distr = self.output_distribution(

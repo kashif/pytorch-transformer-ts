@@ -1,4 +1,4 @@
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 import torch
 from gluonts.core.component import validated
@@ -58,6 +58,8 @@ class HopfieldEstimator(PyTorchLightningEstimator):
         d_model: int = 64,
         nhead: int = 4,
         input_size: int = 1,
+        enc_beta: Optional[Union[float, torch.Tensor]] = None,
+        dec_beta: Optional[Union[float, torch.Tensor]] = None,
         activation: str = "relu",
         dropout: float = 0.1,
         context_length: Optional[int] = None,
@@ -93,6 +95,8 @@ class HopfieldEstimator(PyTorchLightningEstimator):
         self.loss = loss
 
         self.input_size = input_size
+        self.enc_beta = enc_beta
+        self.dec_beta = dec_beta
         self.nhead = nhead
         self.d_model = d_model
         self.num_encoder_layers = num_encoder_layers
@@ -279,6 +283,8 @@ class HopfieldEstimator(PyTorchLightningEstimator):
             cardinality=self.cardinality,
             embedding_dimension=self.embedding_dimension,
             # hopfield arguments
+            enc_beta=self.enc_beta,
+            dec_beta=self.dec_beta,
             d_model=self.d_model,
             nhead=self.nhead,
             num_encoder_layers=self.num_encoder_layers,
