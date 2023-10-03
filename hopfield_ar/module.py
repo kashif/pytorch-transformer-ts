@@ -464,7 +464,7 @@ class HopfieldARModel(nn.Module):
             )
             distr = self.output_distribution(params, loc=loc, scale=scale, trailing_n=1)
             next_sample = distr.sample()
-            future_samples.append(next_sample)
+            future_samples.append(self.post_process_samples(next_sample))
 
             repeated_past_target = torch.cat((repeated_past_target, next_sample), dim=1)
             repeated_past_observed_values = torch.cat((repeated_past_observed_values, torch.ones_like(next_sample)), dim=1)
@@ -527,10 +527,6 @@ class HopfieldARModel(nn.Module):
         #     future_samples.append(next_sample)
 
         future_samples_concat = torch.cat(future_samples, dim=1)
-
-        future_samples_concat = self.post_process_samples(
-            future_samples_concat
-        )
 
         return future_samples_concat.reshape(
             (-1, num_parallel_samples, self.prediction_length)

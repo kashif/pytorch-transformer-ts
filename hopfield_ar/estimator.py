@@ -184,7 +184,7 @@ class HopfieldAREstimator(PyTorchLightningEstimator):
         trainer_kwargs: Optional[Dict[str, Any]] = None,
         train_sampler: Optional[InstanceSampler] = None,
         validation_sampler: Optional[InstanceSampler] = None,
-        nonnegative_pred_samples: bool = False,
+        nonnegative_pred_samples: bool = True,
     ) -> None:
         default_trainer_kwargs = {
             "max_epochs": 100,
