@@ -8,6 +8,7 @@ from gluonts.dataset.common import Dataset
 from gluonts.dataset.field_names import FieldName
 from gluonts.dataset.loader import as_stacked_batches
 from gluonts.dataset.stat import calculate_dataset_statistics
+from gluonts.time_feature import get_lags_for_frequency
 from gluonts.itertools import Cyclic
 from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
 from gluonts.transform import (
@@ -84,6 +85,7 @@ class LagHyenaEstimator(PyTorchLightningEstimator):
         input_size: int = 1,
         n_layer: int = 1,
         n_embd: int = 32,
+        max_context_length: int = 2048,
         scaling: Optional[str] = "mean",
         lr: float = 1e-3,
         weight_decay: float = 1e-8,
@@ -108,6 +110,20 @@ class LagHyenaEstimator(PyTorchLightningEstimator):
         self.input_size = input_size
         self.prediction_length = prediction_length
         self.context_length = context_length or 10 * prediction_length
+        self.max_context_length = max(max_context_length, self.context_length)
+        self.lags_seq = sorted(
+            list(
+                set(
+                    get_lags_for_frequency(freq_str="Q", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="M", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="W", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="D", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="H", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="T", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="S", num_default_lags=1)
+                )
+            )
+        )
 
         self.n_layer = n_layer
         self.n_embd = n_embd
@@ -157,8 +173,8 @@ class LagHyenaEstimator(PyTorchLightningEstimator):
     def create_lightning_module(self) -> pl.LightningModule:
         model_kwargs = {
             "input_size": self.input_size,
-            "prediction_length": self.prediction_length,
-            "context_length": self.context_length,
+            "max_context_length": self.max_context_length,
+            "lags_seq": self.lags_seq,
             "n_layer": self.n_layer,
             "n_embd": self.n_embd,
             "scaling": self.scaling,
@@ -171,6 +187,8 @@ class LagHyenaEstimator(PyTorchLightningEstimator):
                 loss=self.loss,
                 lr=self.lr,
                 weight_decay=self.weight_decay,
+                context_length=self.context_length,
+                prediction_length=self.prediction_length,
                 aug_prob=self.aug_prob,
                 aug_rate=self.aug_rate,
                 model_kwargs=model_kwargs,
@@ -180,6 +198,8 @@ class LagHyenaEstimator(PyTorchLightningEstimator):
                 loss=self.loss,
                 lr=self.lr,
                 weight_decay=self.weight_decay,
+                context_length=self.context_length,
+                prediction_length=self.prediction_length,
                 aug_prob=self.aug_prob,
                 aug_rate=self.aug_rate,
                 model_kwargs=model_kwargs,
@@ -200,7 +220,7 @@ class LagHyenaEstimator(PyTorchLightningEstimator):
             start_field=FieldName.START,
             forecast_start_field=FieldName.FORECAST_START,
             instance_sampler=instance_sampler,
-            past_length=module.model._past_length,
+            past_length=self.context_length + max(self.lags_seq),
             future_length=self.prediction_length,
             time_series_fields=[FieldName.OBSERVED_VALUES],
             dummy_value=self.distr_output.value_in_support,

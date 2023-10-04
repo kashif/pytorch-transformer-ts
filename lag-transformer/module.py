@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional, List
 
 import numpy as np
 
@@ -66,8 +66,7 @@ class LagTransformerModel(nn.Module):
     @validated()
     def __init__(
         self,
-        context_length: int,
-        prediction_length: int,
+        lags_seq: List[int],
         # transformer arguments
         d_model: int,
         nhead: int,
@@ -75,6 +74,7 @@ class LagTransformerModel(nn.Module):
         num_decoder_layers: int,
         dim_feedforward: int,
         scaling: str,
+        max_context_length: int,
         activation: str = "gelu",
         dropout: float = 0.1,
         # univariate input
@@ -87,21 +87,8 @@ class LagTransformerModel(nn.Module):
         self.input_size = input_size
         self.target_shape = distr_output.event_shape
 
-        self.lags_seq = sorted(
-            list(
-                set(
-                    get_lags_for_frequency(freq_str="Q", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="M", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="W", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="D", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="H", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="T", num_default_lags=1)
-                    + get_lags_for_frequency(freq_str="S", num_default_lags=1)
-                )
-            )
-        )
+        self.lags_seq = lags_seq
         self.num_parallel_samples = num_parallel_samples
-        self.history_length = context_length + max(self.lags_seq)
 
         if scaling == "mean":
             self.scaler = MeanScaler(keepdim=True, dim=1)
@@ -116,12 +103,8 @@ class LagTransformerModel(nn.Module):
             feature_size=feature_size, d_model=d_model
         )
 
-        self.pos_embedding = PositionalEmbedding(
-            context_length + prediction_length, d_model
-        )
+        self.pos_embedding = PositionalEmbedding(max_context_length, d_model)
 
-        self.context_length = context_length
-        self.prediction_length = prediction_length
         self.distr_output = distr_output
         self.param_proj = distr_output.get_args_proj(d_model)
 
@@ -138,19 +121,9 @@ class LagTransformerModel(nn.Module):
             norm_first=True,
         )
 
-        # causal decoder tgt mask
-        self.register_buffer(
-            "tgt_mask",
-            self.transformer.generate_square_subsequent_mask(prediction_length),
-        )
-
     @property
     def _number_of_features(self) -> int:
         return self.input_size * 2  # the log(scale) and log1p(loc)
-
-    @property
-    def _past_length(self) -> int:
-        return self.context_length + max(self.lags_seq)
 
     def get_lagged_subsequences(
         self, sequence: torch.Tensor, subsequences_length: int, shift: int = 0
@@ -211,9 +184,13 @@ class LagTransformerModel(nn.Module):
         past_observed_values: torch.Tensor,
         future_target: Optional[torch.Tensor] = None,
     ):
+        _past_length = past_target.shape[1]
+        prediction_length = future_target.shape[1] if future_target is not None else 0
+        context_length = _past_length - max(self.lags_seq)
+
         # target
-        context = past_target[:, -self.context_length :]
-        observed_context = past_observed_values[:, -self.context_length :]
+        context = past_target[:, max(self.lags_seq) :]
+        observed_context = past_observed_values[:, max(self.lags_seq) :]
         _, loc, scale = self.scaler(context, observed_context)
 
         inputs = (
@@ -222,18 +199,9 @@ class LagTransformerModel(nn.Module):
             else (past_target - loc) / scale
         )
 
-        inputs_length = (
-            self._past_length + self.prediction_length
-            if future_target is not None
-            else self._past_length
-        )
+        inputs_length = _past_length + prediction_length
         assert inputs.shape[1] == inputs_length
-
-        subsequences_length = (
-            self.context_length + self.prediction_length
-            if future_target is not None
-            else self.context_length
-        )
+        subsequences_length = context_length + prediction_length
         lagged_sequence = self.get_lagged_subsequences(
             sequence=inputs,
             subsequences_length=subsequences_length,
@@ -259,22 +227,22 @@ class LagTransformerModel(nn.Module):
 
         return transformer_inputs, loc, scale, static_feat
 
-    def output_params(self, transformer_inputs):
-        enc_input = self.enc_dec_embedding(
-            transformer_inputs[:, : self.context_length, ...]
-        )
+    def output_params(self, transformer_inputs, context_length: int):
+        enc_input = self.enc_dec_embedding(transformer_inputs[:, :context_length, ...])
         enc_pos = self.pos_embedding(enc_input.size())
 
-        dec_input = self.enc_dec_embedding(
-            transformer_inputs[:, self.context_length :, ...]
-        )
+        dec_input = self.enc_dec_embedding(transformer_inputs[:, context_length:, ...])
+        prediction_length = dec_input.size(1)
+        tgt_mask = self.transformer.generate_square_subsequent_mask(
+            prediction_length
+        ).to(dec_input.device)
         dec_pos = self.pos_embedding(
-            dec_input.size(), past_key_values_length=self.context_length
+            dec_input.size(), past_key_values_length=context_length
         )
 
         enc_out = self.transformer.encoder(enc_input + enc_pos)
         dec_output = self.transformer.decoder(
-            dec_input + dec_pos, enc_out, tgt_mask=self.tgt_mask
+            dec_input + dec_pos, enc_out, tgt_mask=tgt_mask
         )
 
         return self.param_proj(dec_output)
@@ -287,88 +255,3 @@ class LagTransformerModel(nn.Module):
         if trailing_n is not None:
             sliced_params = [p[:, -trailing_n:] for p in params]
         return self.distr_output.distribution(sliced_params, loc=loc, scale=scale)
-
-    # for prediction
-    def forward(
-        self,
-        past_target: torch.Tensor,
-        past_observed_values: torch.Tensor,
-        num_parallel_samples: Optional[int] = None,
-    ) -> torch.Tensor:
-        if num_parallel_samples is None:
-            num_parallel_samples = self.num_parallel_samples
-
-        encoder_inputs, loc, scale, static_feat = self.create_network_inputs(
-            past_target, past_observed_values
-        )
-        enc_pos = self.pos_embedding(encoder_inputs.size())
-        enc_out = self.transformer.encoder(
-            self.enc_dec_embedding(encoder_inputs) + enc_pos
-        )
-
-        repeated_scale = scale.repeat_interleave(
-            repeats=self.num_parallel_samples, dim=0
-        )
-        repeated_loc = loc.repeat_interleave(repeats=self.num_parallel_samples, dim=0)
-
-        repeated_static_feat = static_feat.repeat_interleave(
-            repeats=num_parallel_samples, dim=0
-        )
-        expanded_static_feat = repeated_static_feat.unsqueeze(1).expand(
-            -1, self.prediction_length, -1
-        )
-
-        repeated_past_target = (
-            past_target.repeat_interleave(repeats=self.num_parallel_samples, dim=0)
-            - repeated_loc
-        ) / repeated_scale
-
-        repeated_enc_out = enc_out.repeat_interleave(
-            repeats=self.num_parallel_samples, dim=0
-        )
-
-        future_samples = []
-
-        # greedy decoding
-        for k in range(self.prediction_length):
-            # self._check_shapes(repeated_past_target, next_sample, next_features)
-            # sequence = torch.cat((repeated_past_target, next_sample), dim=1)
-
-            lagged_sequence = self.get_lagged_subsequences(
-                sequence=repeated_past_target,
-                subsequences_length=1 + k,
-                shift=1,
-            )
-
-            lags_shape = lagged_sequence.shape
-            reshaped_lagged_sequence = lagged_sequence.reshape(
-                lags_shape[0], lags_shape[1], -1
-            )
-
-            decoder_input = torch.cat(
-                (reshaped_lagged_sequence, expanded_static_feat[:, : k + 1]), dim=-1
-            )
-
-            dec_pos = self.pos_embedding(
-                decoder_input.size(), past_key_values_length=self.context_length
-            )
-            output = self.transformer.decoder(
-                self.enc_dec_embedding(decoder_input) + dec_pos, repeated_enc_out
-            )
-
-            params = self.param_proj(output[:, -1:])
-            distr = self.output_distribution(
-                params, scale=repeated_scale, loc=repeated_loc
-            )
-            next_sample = distr.sample()
-
-            repeated_past_target = torch.cat(
-                (repeated_past_target, (next_sample - repeated_loc) / repeated_scale),
-                dim=1,
-            )
-            future_samples.append(next_sample)
-
-        concat_future_samples = torch.cat(future_samples, dim=1)
-        return concat_future_samples.reshape(
-            (-1, self.num_parallel_samples, self.prediction_length) + self.target_shape,
-        )

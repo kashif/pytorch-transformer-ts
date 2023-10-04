@@ -1,44 +1,34 @@
-from typing import Optional, Iterable, Dict, Any
+from typing import Any, Dict, Iterable, Optional
 
-import torch
 import pytorch_lightning as pl
+import torch
 
 from gluonts.core.component import validated
 from gluonts.dataset.common import Dataset
 from gluonts.dataset.field_names import FieldName
 from gluonts.dataset.loader import as_stacked_batches
 from gluonts.dataset.stat import calculate_dataset_statistics
-from gluonts.time_feature import (
-    get_lags_for_frequency,
-    TimeFeature,
-    time_features_from_frequency_str,
-)
+from gluonts.time_feature import get_lags_for_frequency
 from gluonts.itertools import Cyclic
-from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
-from gluonts.transform import (
-    Chain,
-    Transformation,
-    ValidationSplitSampler,
-    TestSplitSampler,
-    AddObservedValuesIndicator,
-    AddTimeFeatures,
-    ExpectedNumInstanceSampler,
-    DummyValueImputation,
-    InstanceSampler,
-    InstanceSplitter,
-)
+from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.model.estimator import PyTorchLightningEstimator
 from gluonts.torch.model.predictor import PyTorchPredictor
-from gluonts.torch.distributions import DistributionOutput, StudentTOutput
+from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
+from gluonts.transform import (
+    AddObservedValuesIndicator,
+    Chain,
+    DummyValueImputation,
+    ExpectedNumInstanceSampler,
+    InstanceSampler,
+    InstanceSplitter,
+    TestSplitSampler,
+    Transformation,
+    ValidationSplitSampler,
+)
 
-from lightning_module import LagGPTLightningModule
+from lightning_module import LagGPTAlibiLightningModule
 
-PREDICTION_INPUT_NAMES = [
-    "past_target",
-    "past_observed_values",
-    "past_time_feat",
-    "future_time_feat",
-]
+PREDICTION_INPUT_NAMES = ["past_target", "past_observed_values"]
 
 TRAINING_INPUT_NAMES = PREDICTION_INPUT_NAMES + [
     "future_target",
@@ -46,7 +36,7 @@ TRAINING_INPUT_NAMES = PREDICTION_INPUT_NAMES + [
 ]
 
 
-class LagGPTEstimator(PyTorchLightningEstimator):
+class LagGPTAlibiEstimator(PyTorchLightningEstimator):
     """
     An estimator training a ConvTSMixer model for forecasting.
 
@@ -96,8 +86,6 @@ class LagGPTEstimator(PyTorchLightningEstimator):
         n_layer: int = 1,
         n_embd: int = 32,
         n_head: int = 4,
-        max_context_length: int = 2048,
-        rope_scaling=None,
         scaling: Optional[str] = "mean",
         lr: float = 1e-3,
         weight_decay: float = 1e-8,
@@ -122,7 +110,6 @@ class LagGPTEstimator(PyTorchLightningEstimator):
         self.input_size = input_size
         self.prediction_length = prediction_length
         self.context_length = context_length or 10 * prediction_length
-        self.max_context_length = max_context_length
         self.lags_seq = sorted(
             list(
                 set(
@@ -140,7 +127,6 @@ class LagGPTEstimator(PyTorchLightningEstimator):
         self.n_head = n_head
         self.n_layer = n_layer
         self.n_embd = n_embd
-        self.rope_scaling = rope_scaling
 
         self.lr = lr
         self.weight_decay = weight_decay
@@ -175,13 +161,6 @@ class LagGPTEstimator(PyTorchLightningEstimator):
     def create_transformation(self) -> Transformation:
         return Chain(
             [
-                AddTimeFeatures(
-                    start_field=FieldName.START,
-                    target_field=FieldName.TARGET,
-                    output_field=FieldName.FEAT_TIME,
-                    time_features=time_features_from_frequency_str("S"),
-                    pred_length=self.prediction_length,
-                ),
                 # FilterTransformation(lambda x: sum(abs(x[FieldName.TARGET])) > 0),
                 AddObservedValuesIndicator(
                     target_field=FieldName.TARGET,
@@ -193,42 +172,40 @@ class LagGPTEstimator(PyTorchLightningEstimator):
 
     def create_lightning_module(self) -> pl.LightningModule:
         model_kwargs = {
-            "input_size": self.input_size,
-            "max_context_length": self.max_context_length,
             "lags_seq": self.lags_seq,
+            "input_size": self.input_size,
             "n_layer": self.n_layer,
             "n_embd": self.n_embd,
             "n_head": self.n_head,
             "scaling": self.scaling,
             "distr_output": self.distr_output,
             "num_parallel_samples": self.num_parallel_samples,
-            "rope_scaling": self.rope_scaling,
         }
         if self.ckpt_path is not None:
-            return LagGPTLightningModule.load_from_checkpoint(
+            return LagGPTAlibiLightningModule.load_from_checkpoint(
                 checkpoint_path=self.ckpt_path,
                 loss=self.loss,
                 lr=self.lr,
                 weight_decay=self.weight_decay,
-                context_length=self.context_length,
-                prediction_length=self.prediction_length,
                 aug_prob=self.aug_prob,
                 aug_rate=self.aug_rate,
+                prediction_length=self.prediction_length,
+                context_length=self.context_length,
                 model_kwargs=model_kwargs,
             )
         else:
-            return LagGPTLightningModule(
+            return LagGPTAlibiLightningModule(
                 loss=self.loss,
                 lr=self.lr,
                 weight_decay=self.weight_decay,
-                context_length=self.context_length,
-                prediction_length=self.prediction_length,
                 aug_prob=self.aug_prob,
                 aug_rate=self.aug_rate,
+                prediction_length=self.prediction_length,
+                context_length=self.context_length,
                 model_kwargs=model_kwargs,
             )
 
-    def _create_instance_splitter(self, module: LagGPTLightningModule, mode: str):
+    def _create_instance_splitter(self, module: LagGPTAlibiLightningModule, mode: str):
         assert mode in ["training", "validation", "test"]
 
         instance_sampler = {
@@ -245,14 +222,14 @@ class LagGPTEstimator(PyTorchLightningEstimator):
             instance_sampler=instance_sampler,
             past_length=self.context_length + max(self.lags_seq),
             future_length=self.prediction_length,
-            time_series_fields=[FieldName.FEAT_TIME, FieldName.OBSERVED_VALUES],
+            time_series_fields=[FieldName.OBSERVED_VALUES],
             dummy_value=self.distr_output.value_in_support,
         )
 
     def create_training_data_loader(
         self,
         data: Dataset,
-        module: LagGPTLightningModule,
+        module: LagGPTAlibiLightningModule,
         shuffle_buffer_length: Optional[int] = None,
         **kwargs,
     ) -> Iterable:
@@ -272,7 +249,7 @@ class LagGPTEstimator(PyTorchLightningEstimator):
     def create_validation_data_loader(
         self,
         data: Dataset,
-        module: LagGPTLightningModule,
+        module: LagGPTAlibiLightningModule,
         **kwargs,
     ) -> Iterable:
         instances = self._create_instance_splitter(module, "validation").apply(
@@ -298,5 +275,5 @@ class LagGPTEstimator(PyTorchLightningEstimator):
             prediction_net=module,
             batch_size=self.batch_size,
             prediction_length=self.prediction_length,
-            device="cuda" if torch.cuda.is_available() else "cpu",
+            device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         )

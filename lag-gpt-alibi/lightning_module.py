@@ -2,28 +2,27 @@ import random
 
 import pytorch_lightning as pl
 import torch
-
 from gluonts.core.component import validated
-from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
-from gluonts.torch.util import take_last, repeat_along_dim
 from gluonts.itertools import prod
+from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
+from gluonts.torch.util import repeat_along_dim, take_last
 
-from module import LagHyenaModel
 from aug import freq_mask, freq_mix
+from module import LagGPTAlibiModel
 
 
-class LagHyenaLightningModule(pl.LightningModule):
+class LagGPTAlibiLightningModule(pl.LightningModule):
     """
     A ``pl.LightningModule`` class that can be used to train a
-    ``LagHyenaLightningModule`` with PyTorch Lightning.
+    ``LagGPTAlibiLightningModule`` with PyTorch Lightning.
 
-    This is a thin layer around a (wrapped) ``LagHyenaLightningModule`` object,
+    This is a thin layer around a (wrapped) ``LagGPTAlibiLightningModule`` object,
     that exposes the methods to evaluate training and validation loss.
 
     Parameters
     ----------
     model
-        ``LagHyenaLightningModule`` to be trained.
+        ``LagGPTAlibiLightningModule`` to be trained.
     loss
         Loss function to be used for training,
         default: ``NegativeLogLikelihood()``.
@@ -47,7 +46,7 @@ class LagHyenaLightningModule(pl.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
-        self.model = LagHyenaModel(**self.hparams.model_kwargs)
+        self.model = LagGPTAlibiModel(**self.hparams.model_kwargs)
         self.context_length = self.hparams.context_length
         self.prediction_length = self.hparams.prediction_length
         self.loss = self.hparams.loss
@@ -58,9 +57,9 @@ class LagHyenaLightningModule(pl.LightningModule):
 
     # greedy prediction
     def forward(self, *args, **kwargs):
+        # past_time_feat = kwargs["past_time_feat"]
         past_target = kwargs["past_target"]
         past_observed_values = kwargs["past_observed_values"]
-
         repeated_past_target = past_target.repeat_interleave(
             self.model.num_parallel_samples, 0
         )
@@ -84,7 +83,6 @@ class LagHyenaLightningModule(pl.LightningModule):
             repeated_past_observed_values = torch.cat(
                 (repeated_past_observed_values, torch.ones_like(sample)), dim=1
             )
-
         concat_future_samples = torch.cat(future_samples, dim=-1)
         return concat_future_samples.reshape(
             (-1, self.model.num_parallel_samples, self.prediction_length)
@@ -93,15 +91,18 @@ class LagHyenaLightningModule(pl.LightningModule):
 
     # # beam-search? prediction
     # def forward(self, *args, **kwargs):
+    #     past_time_feat = kwargs["past_time_feat"]
     #     past_target = kwargs["past_target"]
     #     past_observed_values = kwargs["past_observed_values"]
+    #     future_time_feat = kwargs["future_time_feat"]
 
     #     future_samples = []
-    #     for t in range(self.prediction_length):
+    #     for t in range(self.model.prediction_length):
     #         params, loc, scale = self.model.forward(
     #             *args,
     #             past_target=past_target,
     #             past_observed_values=past_observed_values,
+    #             past_time_feat=past_time_feat,
     #         )
     #         sliced_params = [p[:, -1:] for p in params]
     #         distr = self.model.distr_output.distribution(sliced_params, loc, scale)
@@ -112,10 +113,14 @@ class LagHyenaLightningModule(pl.LightningModule):
     #         past_observed_values = torch.cat(
     #             (past_observed_values, torch.ones_like(distr.mean)), dim=1
     #         )
+    #         past_time_feat = torch.cat(
+    #             (past_time_feat, future_time_feat[:, t : t + 1, ...]),
+    #             dim=1,
+    #         )
 
     #     concat_future_samples = torch.cat(future_samples, dim=-1)
     #     return concat_future_samples.reshape(
-    #         (-1, self.model.num_parallel_samples, self.prediction_length)
+    #         (-1, self.model.num_parallel_samples, self.model.prediction_length)
     #         + self.model.distr_output.event_shape,
     #     )
 
@@ -124,7 +129,7 @@ class LagHyenaLightningModule(pl.LightningModule):
     #     past_target = kwargs["past_target"]
     #     past_observed_values = kwargs["past_observed_values"]
 
-    #     for t in range(self.prediction_length):
+    #     for t in range(self.model.prediction_length):
     #         params, loc, scale = self.model(
     #             *args,
     #             past_target=past_target,
@@ -137,11 +142,11 @@ class LagHyenaLightningModule(pl.LightningModule):
     #             (past_observed_values, torch.ones_like(distr.mean)), dim=1
     #         )
 
-    #     sliced_params = [p[:, -self.prediction_length :] for p in params]
+    #     sliced_params = [p[:, -self.model.prediction_length :] for p in params]
     #     distr = self.model.distr_output.distribution(sliced_params, loc, scale)
     #     sample = distr.sample((self.model.num_parallel_samples,))
     #     return sample.transpose(1, 0).reshape(
-    #         (-1, self.model.num_parallel_samples, self.prediction_length)
+    #         (-1, self.model.num_parallel_samples, self.model.prediction_length)
     #         + self.model.distr_output.event_shape,
     #     )
 

@@ -37,6 +37,8 @@ class LagGPTLightningModule(pl.LightningModule):
     def __init__(
         self,
         model_kwargs: dict,
+        context_length: int,
+        prediction_length: int,
         loss: DistributionLoss = NegativeLogLikelihood(),
         lr: float = 1e-3,
         weight_decay: float = 1e-8,
@@ -45,6 +47,8 @@ class LagGPTLightningModule(pl.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
+        self.context_length = self.hparams.context_length
+        self.prediction_length = self.hparams.prediction_length
         self.model = LagGPTModel(**self.hparams.model_kwargs)
         self.loss = self.hparams.loss
         self.lr = self.hparams.lr
@@ -52,53 +56,53 @@ class LagGPTLightningModule(pl.LightningModule):
         self.aug_prob = self.hparams.aug_prob
         self.aug_rate = self.hparams.aug_rate
 
-    # # greedy prediction
-    # def forward(self, *args, **kwargs):
-    #     past_time_feat = kwargs["past_time_feat"]
-    #     past_target = kwargs["past_target"]
-    #     past_observed_values = kwargs["past_observed_values"]
-    #     future_time_feat = kwargs["future_time_feat"]
+    # greedy prediction
+    def forward(self, *args, **kwargs):
+        past_target = kwargs["past_target"]
+        past_observed_values = kwargs["past_observed_values"]
+        past_time_feat = kwargs["past_time_feat"]
+        future_time_feat = kwargs["future_time_feat"]
 
-    #     repeated_past_time_feat = past_time_feat.repeat_interleave(
-    #         self.model.num_parallel_samples, 0
-    #     )
-    #     repeated_past_target = past_target.repeat_interleave(
-    #         self.model.num_parallel_samples, 0
-    #     )
-    #     repeated_past_observed_values = past_observed_values.repeat_interleave(
-    #         self.model.num_parallel_samples, 0
-    #     )
-    #     repeated_future_time_feat = future_time_feat.repeat_interleave(
-    #         self.model.num_parallel_samples, 0
-    #     )
+        repeated_past_target = past_target.repeat_interleave(
+            self.model.num_parallel_samples, 0
+        )
+        repeated_past_observed_values = past_observed_values.repeat_interleave(
+            self.model.num_parallel_samples, 0
+        )
+        repeated_past_time_feat = past_time_feat.repeat_interleave(
+            self.model.num_parallel_samples, 0
+        )
+        repeated_future_time_feat = future_time_feat.repeat_interleave(
+            self.model.num_parallel_samples, 0
+        )
 
-    #     future_samples = []
-    #     for t in range(self.model.prediction_length):
-    #         params, loc, scale = self.model.forward(
-    #             *args,
-    #             past_target=repeated_past_target,
-    #             past_observed_values=repeated_past_observed_values,
-    #             past_time_feat=repeated_past_time_feat,
-    #         )
-    #         sliced_params = [p[:, -1:] for p in params]
-    #         distr = self.model.distr_output.distribution(sliced_params, loc, scale)
-    #         sample = distr.sample()
-    #         future_samples.append(sample)
+        future_samples = []
+        for t in range(self.prediction_length):
+            params, loc, scale = self.model(
+                *args,
+                past_time_feat=repeated_past_time_feat,
+                future_time_feat=repeated_future_time_feat[..., : t + 1, :],
+                past_target=repeated_past_target,
+                past_observed_values=repeated_past_observed_values,
+                is_test=False,
+            )
+            sliced_params = [p[:, -1:] for p in params]
+            distr = self.model.distr_output.distribution(sliced_params, loc, scale)
+            sample = distr.sample()
+            future_samples.append(sample)
 
-    #         repeated_past_target = torch.cat((repeated_past_target, sample), dim=1)
-    #         repeated_past_observed_values = torch.cat(
-    #             (repeated_past_observed_values, torch.ones_like(sample)), dim=1
-    #         )
-    #         repeated_past_time_feat = torch.cat(
-    #             (repeated_past_time_feat, repeated_future_time_feat[:, t : t + 1, ...]),
-    #             dim=1,
-    #         )
+            repeated_past_target = torch.cat((repeated_past_target, sample), dim=1)
+            repeated_past_observed_values = torch.cat(
+                (repeated_past_observed_values, torch.ones_like(sample)), dim=1
+            )
 
-    #     concat_future_samples = torch.cat(future_samples, dim=-1)
-    #     return concat_future_samples.reshape(
-    #         (-1, self.model.num_parallel_samples, self.model.prediction_length)
-    #         + self.model.distr_output.event_shape,
-    #     )
+        self.model.reset_cache()
+
+        concat_future_samples = torch.cat(future_samples, dim=-1)
+        return concat_future_samples.reshape(
+            (-1, self.model.num_parallel_samples, self.prediction_length)
+            + self.model.distr_output.event_shape,
+        )
 
     # # beam-search? prediction
     # def forward(self, *args, **kwargs):
@@ -108,7 +112,7 @@ class LagGPTLightningModule(pl.LightningModule):
     #     future_time_feat = kwargs["future_time_feat"]
 
     #     future_samples = []
-    #     for t in range(self.model.prediction_length):
+    #     for t in range(self.prediction_length):
     #         params, loc, scale = self.model.forward(
     #             *args,
     #             past_target=past_target,
@@ -131,35 +135,35 @@ class LagGPTLightningModule(pl.LightningModule):
 
     #     concat_future_samples = torch.cat(future_samples, dim=-1)
     #     return concat_future_samples.reshape(
-    #         (-1, self.model.num_parallel_samples, self.model.prediction_length)
+    #         (-1, self.model.num_parallel_samples, self.prediction_length)
     #         + self.model.distr_output.event_shape,
     #     )
 
-    # mean prediction and then sample
-    def forward(self, *args, **kwargs):
-        past_target = kwargs["past_target"]
-        past_observed_values = kwargs["past_observed_values"]
+    # # mean prediction and then sample
+    # def forward(self, *args, **kwargs):
+    #     past_target = kwargs["past_target"]
+    #     past_observed_values = kwargs["past_observed_values"]
 
-        for t in range(self.model.prediction_length):
-            params, loc, scale = self.model(
-                *args,
-                past_target=past_target,
-                past_observed_values=past_observed_values,
-            )
-            sliced_params = [p[:, -1:] for p in params]
-            distr = self.model.distr_output.distribution(sliced_params, loc, scale)
-            past_target = torch.cat((past_target, distr.mean), dim=1)
-            past_observed_values = torch.cat(
-                (past_observed_values, torch.ones_like(distr.mean)), dim=1
-            )
+    #     for t in range(self.prediction_length):
+    #         params, loc, scale = self.model(
+    #             *args,
+    #             past_target=past_target,
+    #             past_observed_values=past_observed_values,
+    #         )
+    #         sliced_params = [p[:, -1:] for p in params]
+    #         distr = self.model.distr_output.distribution(sliced_params, loc, scale)
+    #         past_target = torch.cat((past_target, distr.mean), dim=1)
+    #         past_observed_values = torch.cat(
+    #             (past_observed_values, torch.ones_like(distr.mean)), dim=1
+    #         )
 
-        sliced_params = [p[:, -self.model.prediction_length :] for p in params]
-        distr = self.model.distr_output.distribution(sliced_params, loc, scale)
-        sample = distr.sample((self.model.num_parallel_samples,))
-        return sample.transpose(1, 0).reshape(
-            (-1, self.model.num_parallel_samples, self.model.prediction_length)
-            + self.model.distr_output.event_shape,
-        )
+    #     sliced_params = [p[:, -self.prediction_length :] for p in params]
+    #     distr = self.model.distr_output.distribution(sliced_params, loc, scale)
+    #     sample = distr.sample((self.model.num_parallel_samples,))
+    #     return sample.transpose(1, 0).reshape(
+    #         (-1, self.model.num_parallel_samples, self.prediction_length)
+    #         + self.model.distr_output.event_shape,
+    #     )
 
     # train
     def _compute_loss(self, batch):
@@ -167,6 +171,8 @@ class LagGPTLightningModule(pl.LightningModule):
         past_observed_values = batch["past_observed_values"]
         future_target = batch["future_target"]
         future_observed_values = batch["future_observed_values"]
+        past_time_feat = batch["past_time_feat"]
+        future_time_feat = batch["future_time_feat"]
 
         extra_dims = len(future_target.shape) - len(past_target.shape)
         extra_shape = future_target.shape[:extra_dims]
@@ -187,19 +193,19 @@ class LagGPTLightningModule(pl.LightningModule):
         distr_args, loc, scale = self.model(
             past_target=past_target,
             past_observed_values=past_observed_values,
+            past_time_feat=past_time_feat,
+            future_time_feat=future_time_feat,
             future_target=future_target_reshaped,
         )
         distr = self.model.distr_output.distribution(distr_args, loc, scale)
 
-        context_target = take_last(
-            past_target, dim=-1, num=self.model.context_length - 1
-        )
+        context_target = take_last(past_target, dim=-1, num=self.context_length - 1)
         target = torch.cat(
             (context_target, future_target_reshaped),
             dim=1,
         )
         context_observed = take_last(
-            past_observed_values, dim=-1, num=self.model.context_length - 1
+            past_observed_values, dim=-1, num=self.context_length - 1
         )
         observed_values = torch.cat((context_observed, future_observed_reshaped), dim=1)
 
@@ -222,13 +228,7 @@ class LagGPTLightningModule(pl.LightningModule):
                 )
 
         train_loss = self._compute_loss(batch)
-        self.log(
-            "train_loss",
-            train_loss,
-            on_epoch=True,
-            on_step=False,
-            prog_bar=True,
-        )
+        self.log("train_loss", train_loss, on_epoch=True, on_step=False, prog_bar=True)
         return train_loss
 
     def validation_step(self, batch, batch_idx: int):  # type: ignore
@@ -244,7 +244,5 @@ class LagGPTLightningModule(pl.LightningModule):
         Returns the optimizer to use.
         """
         return torch.optim.Adam(
-            self.model.parameters(),
-            lr=self.lr,
-            weight_decay=self.weight_decay,
+            self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
