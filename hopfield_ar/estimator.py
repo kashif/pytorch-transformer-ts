@@ -1,35 +1,54 @@
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License").
+# You may not use this file except in compliance with the License.
+# A copy of the License is located at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# or in the "license" file accompanying this file. This file is distributed
+# on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+# express or implied. See the License for the specific language governing
+# permissions and limitations under the License.
+
 from typing import List, Optional, Iterable, Dict, Any
 
 import torch
+
 from gluonts.core.component import validated
 from gluonts.dataset.common import Dataset
 from gluonts.dataset.field_names import FieldName
 from gluonts.dataset.loader import as_stacked_batches
 from gluonts.itertools import Cyclic
-from gluonts.time_feature import TimeFeature, time_features_from_frequency_str
-from gluonts.torch.distributions import DistributionOutput, StudentTOutput
-from gluonts.torch.model.estimator import PyTorchLightningEstimator
-from gluonts.torch.model.predictor import PyTorchPredictor
+from gluonts.dataset.stat import calculate_dataset_statistics
+from gluonts.time_feature import (
+    TimeFeature,
+    time_features_from_frequency_str,
+)
 from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
 from gluonts.transform import (
-    AddAgeFeature,
-    AddObservedValuesIndicator,
-    AddTimeFeatures,
-    AsNumpyArray,
+    Transformation,
     Chain,
-    ExpectedNumInstanceSampler,
-    InstanceSplitter,
     RemoveFields,
     SetField,
-    TestSplitSampler,
-    Transformation,
-    ValidationSplitSampler,
+    AsNumpyArray,
+    AddObservedValuesIndicator,
+    AddTimeFeatures,
+    AddAgeFeature,
     VstackFeatures,
+    InstanceSplitter,
+    ValidationSplitSampler,
+    TestSplitSampler,
+    ExpectedNumInstanceSampler,
+    MissingValueImputation,
+    DummyValueImputation,
 )
+from gluonts.torch.model.estimator import PyTorchLightningEstimator
+from gluonts.torch.model.predictor import PyTorchPredictor
+from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.transform.sampler import InstanceSampler
 
-from module import PerceiverARModel
-from lightning_module import PerceiverARLightningModule
+from lightning_module import HopfieldARLightningModule
 
 PREDICTION_INPUT_NAMES = [
     "feat_static_cat",
@@ -46,13 +65,17 @@ TRAINING_INPUT_NAMES = PREDICTION_INPUT_NAMES + [
 ]
 
 
-class PerceiverAREstimator(PyTorchLightningEstimator):
+class HopfieldAREstimator(PyTorchLightningEstimator):
     """
-    Estimator class to train a PerceiverAR model.
+    Estimator class to train a HopfieldAR model, as described in [SFG17]_.
 
-    This class is uses the model defined in ``PerceiverARModel``, and wraps it
-    into a ``PerceiverARLightningModule`` for training purposes: training is
+    This class is uses the model defined in ``HopfieldARModel``, and wraps it
+    into a ``HopfieldARLightningModule`` for training purposes: training is
     performed using PyTorch Lightning's ``pl.Trainer`` class.
+
+    *Note:* the code of this model is unrelated to the implementation behind
+    `SageMaker's HopfieldAR Forecasting Algorithm
+    <https://docs.aws.amazon.com/sagemaker/latest/dg/HopfieldAR.html>`_.
 
     Parameters
     ----------
@@ -63,12 +86,18 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
     context_length
         Number of steps to unroll the RNN for before computing predictions
         (default: None, in which case context_length = prediction_length).
-    perceive_depth
+    num_layers
         Number of RNN layers (default: 2).
     hidden_size
         Number of RNN cells for each layer (default: 40).
+    lr
+        Learning rate (default: ``1e-3``).
+    weight_decay
+        Weight decay regularization parameter (default: ``1e-8``).
     dropout_rate
         Dropout regularization parameter (default: 0.1).
+    patience
+        Patience parameter for learning rate scheduler.
     num_feat_dynamic_real
         Number of dynamic real features in the data (default: 0).
     num_feat_static_real
@@ -89,6 +118,10 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
         (default: ``NegativeLogLikelihood()``).
     scaling
         Whether to automatically scale the target values (default: true).
+    default_scale
+        Default scale that is applied if the context length window is
+        completely unobserved. If not set, the scale in this case will be
+        the mean scale in the batch.
     lags_seq
         Indices of the lagged target values to use as inputs of the RNN
         (default: None, in which case these are automatically determined
@@ -111,6 +144,10 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
         Controls the sampling of windows during training.
     validation_sampler
         Controls the sampling of windows during validation.
+    nonnegative_pred_samples
+        Should final prediction samples be non-negative? If yes, an activation
+        function is applied to ensure non-negative. Observe that this is applied
+        only to the final samples and this is not applied during training.
     """
 
     @validated()
@@ -118,16 +155,17 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
         self,
         freq: str,
         prediction_length: int,
-        depth: int,
         context_length: Optional[int] = None,
-        input_size: int = 1,
-        perceive_depth: int = 1,
-        heads: int = 2,
-        hidden_size: int = 32,
+        num_layers: int = 2,
+        d_model: int = 64,
+        nhead: int = 4,
+        beta: float = 2.0,
+        activation: str = "relu",
+        dim_feedforward: int = 16,
+        lr: float = 1e-3,
+        weight_decay: float = 1e-8,
         dropout_rate: float = 0.1,
-        cross_attn_dropout: float = 0.1,
-        perceive_max_heads_process: int = 2,
-        ff_mult: int = 1,
+        patience: int = 10,
         num_feat_dynamic_real: int = 0,
         num_feat_static_cat: int = 0,
         num_feat_static_real: int = 0,
@@ -135,15 +173,18 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
         embedding_dimension: Optional[List[int]] = None,
         distr_output: DistributionOutput = StudentTOutput(),
         loss: DistributionLoss = NegativeLogLikelihood(),
-        scaling: bool = True,
+        scaling: Optional[str] = "std",
+        default_scale: Optional[float] = None,
         lags_seq: Optional[List[int]] = None,
         time_features: Optional[List[TimeFeature]] = None,
         num_parallel_samples: int = 100,
         batch_size: int = 32,
         num_batches_per_epoch: int = 50,
+        imputation_method: Optional[MissingValueImputation] = None,
         trainer_kwargs: Optional[Dict[str, Any]] = None,
         train_sampler: Optional[InstanceSampler] = None,
         validation_sampler: Optional[InstanceSampler] = None,
+        nonnegative_pred_samples: bool = True,
     ) -> None:
         default_trainer_kwargs = {
             "max_epochs": 100,
@@ -153,22 +194,23 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
             default_trainer_kwargs.update(trainer_kwargs)
         super().__init__(trainer_kwargs=default_trainer_kwargs)
 
-        self.input_size = input_size
         self.freq = freq
         self.context_length = (
             context_length if context_length is not None else prediction_length
         )
         self.prediction_length = prediction_length
+        self.patience = patience
         self.distr_output = distr_output
         self.loss = loss
-        self.depth = depth
-        self.perceive_depth = perceive_depth
-        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.d_model = d_model
+        self.nhead = nhead
+        self.beta = beta
+        self.activation = activation
+        self.dim_feedforward = dim_feedforward
+        self.lr = lr
+        self.weight_decay = weight_decay
         self.dropout_rate = dropout_rate
-        self.heads = heads
-        self.perceive_max_heads_process = perceive_max_heads_process
-        self.ff_mult = ff_mult
-        self.cross_attn_dropout = cross_attn_dropout
         self.num_feat_dynamic_real = num_feat_dynamic_real
         self.num_feat_static_cat = num_feat_static_cat
         self.num_feat_static_real = num_feat_static_real
@@ -177,6 +219,7 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
         )
         self.embedding_dimension = embedding_dimension
         self.scaling = scaling
+        self.default_scale = default_scale
         self.lags_seq = lags_seq
         self.time_features = (
             time_features
@@ -188,12 +231,29 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
         self.batch_size = batch_size
         self.num_batches_per_epoch = num_batches_per_epoch
 
+        self.imputation_method = (
+            imputation_method
+            if imputation_method is not None
+            else DummyValueImputation(self.distr_output.value_in_support)
+        )
+
         self.train_sampler = train_sampler or ExpectedNumInstanceSampler(
             num_instances=1.0, min_future=prediction_length
         )
         self.validation_sampler = validation_sampler or ValidationSplitSampler(
             min_future=prediction_length
         )
+        self.nonnegative_pred_samples = nonnegative_pred_samples
+
+    @classmethod
+    def derive_auto_fields(cls, train_iter):
+        stats = calculate_dataset_statistics(train_iter)
+
+        return {
+            "num_feat_dynamic_real": stats.num_feat_dynamic_real,
+            "num_feat_static_cat": len(stats.feat_static_cat),
+            "cardinality": [len(cats) for cats in stats.feat_static_cat],
+        }
 
     def create_transformation(self) -> Transformation:
         remove_field_names = []
@@ -210,7 +270,11 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
                 else []
             )
             + (
-                [SetField(output_field=FieldName.FEAT_STATIC_REAL, value=[0.0])]
+                [
+                    SetField(
+                        output_field=FieldName.FEAT_STATIC_REAL, value=[0.0]
+                    )
+                ]
                 if not self.num_feat_static_real > 0
                 else []
             )
@@ -232,6 +296,7 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
                 AddObservedValuesIndicator(
                     target_field=FieldName.TARGET,
                     output_field=FieldName.OBSERVED_VALUES,
+                    imputation_method=self.imputation_method,
                 ),
                 AddTimeFeatures(
                     start_field=FieldName.START,
@@ -255,10 +320,13 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
                         else []
                     ),
                 ),
+                AsNumpyArray(FieldName.FEAT_TIME, expected_ndim=2),
             ]
         )
 
-    def _create_instance_splitter(self, module: PerceiverARLightningModule, mode: str):
+    def _create_instance_splitter(
+        self, module: HopfieldARLightningModule, mode: str
+    ):
         assert mode in ["training", "validation", "test"]
 
         instance_sampler = {
@@ -285,7 +353,7 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
     def create_training_data_loader(
         self,
         data: Dataset,
-        module: PerceiverARLightningModule,
+        module: HopfieldARLightningModule,
         shuffle_buffer_length: Optional[int] = None,
         **kwargs,
     ) -> Iterable:
@@ -305,7 +373,7 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
     def create_validation_data_loader(
         self,
         data: Dataset,
-        module: PerceiverARLightningModule,
+        module: HopfieldARLightningModule,
         **kwargs,
     ) -> Iterable:
         instances = self._create_instance_splitter(module, "validation").apply(
@@ -318,46 +386,50 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
             output_type=torch.tensor,
         )
 
-    def create_lightning_module(self) -> PerceiverARLightningModule:
-        model = PerceiverARModel(
-            input_size=self.input_size,
-            freq=self.freq,
-            depth=self.depth,
-            context_length=self.context_length,
-            prediction_length=self.prediction_length,
-            num_feat_dynamic_real=(
-                1 + self.num_feat_dynamic_real + len(self.time_features)
-            ),
-            num_feat_static_real=max(1, self.num_feat_static_real),
-            num_feat_static_cat=max(1, self.num_feat_static_cat),
-            cardinality=self.cardinality,
-            embedding_dimension=self.embedding_dimension,
-            perceive_depth=self.perceive_depth,
-            heads=self.heads,
-            perceive_max_heads_process=self.perceive_max_heads_process,
-            ff_mult=self.ff_mult,
-            cross_attn_dropout=self.cross_attn_dropout,
-            hidden_size=self.hidden_size,
-            distr_output=self.distr_output,
-            dropout_rate=self.dropout_rate,
-            lags_seq=self.lags_seq,
-            scaling=self.scaling,
-            num_parallel_samples=self.num_parallel_samples,
+    def create_lightning_module(self) -> HopfieldARLightningModule:
+        return HopfieldARLightningModule(
+            loss=self.loss,
+            lr=self.lr,
+            weight_decay=self.weight_decay,
+            patience=self.patience,
+            model_kwargs={
+                "freq": self.freq,
+                "context_length": self.context_length,
+                "prediction_length": self.prediction_length,
+                "num_feat_dynamic_real": (
+                    1 + self.num_feat_dynamic_real + len(self.time_features)
+                ),
+                "num_feat_static_real": max(1, self.num_feat_static_real),
+                "num_feat_static_cat": max(1, self.num_feat_static_cat),
+                "cardinality": self.cardinality,
+                "embedding_dimension": self.embedding_dimension,
+                "num_layers": self.num_layers,
+                "d_model": self.d_model,
+                "nhead": self.nhead,
+                "beta": self.beta,
+                "activation": self.activation,
+                "dim_feedforward": self.dim_feedforward,
+                "distr_output": self.distr_output,
+                "dropout_rate": self.dropout_rate,
+                "lags_seq": self.lags_seq,
+                "scaling": self.scaling,
+                "default_scale": self.default_scale,
+                "num_parallel_samples": self.num_parallel_samples,
+                "nonnegative_pred_samples": self.nonnegative_pred_samples,
+            },
         )
-
-        return PerceiverARLightningModule(model=model, loss=self.loss)
 
     def create_predictor(
         self,
         transformation: Transformation,
-        module: PerceiverARLightningModule,
+        module: HopfieldARLightningModule,
     ) -> PyTorchPredictor:
         prediction_splitter = self._create_instance_splitter(module, "test")
 
         return PyTorchPredictor(
             input_transform=transformation + prediction_splitter,
             input_names=PREDICTION_INPUT_NAMES,
-            prediction_net=module.model,
+            prediction_net=module,
             batch_size=self.batch_size,
             prediction_length=self.prediction_length,
             device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),

@@ -8,7 +8,7 @@ from gluonts.core.component import validated
 from gluonts.time_feature import get_lags_for_frequency
 from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.modules.feature import FeatureEmbedder
-from gluonts.torch.modules.scaler import MeanScaler, NOPScaler
+from gluonts.torch.scaler import MeanScaler, NOPScaler, StdScaler
 
 
 class TokenEmbedding(nn.Module):
@@ -400,7 +400,7 @@ class AutoCorrelation(nn.Module):
         q_fft = torch.fft.rfft(queries.permute(0, 2, 3, 1).contiguous(), dim=-1)
         k_fft = torch.fft.rfft(keys.permute(0, 2, 3, 1).contiguous(), dim=-1)
         res = q_fft * torch.conj(k_fft)
-        corr = torch.fft.irfft(res, dim=-1)
+        corr = torch.fft.irfft(res, n=L, dim=-1)
 
         # time delay agg
         if self.training:
@@ -473,7 +473,7 @@ class AutoformerModel(nn.Module):
         embedding_dimension: Optional[List[int]] = None,
         distr_output: DistributionOutput = StudentTOutput(),
         lags_seq: Optional[List[int]] = None,
-        scaling: bool = True,
+        scaling: Optional[str] = "mean",
         num_parallel_samples: int = 100,
     ) -> None:
         super().__init__()
@@ -496,10 +496,12 @@ class AutoformerModel(nn.Module):
             cardinalities=cardinality,
             embedding_dims=self.embedding_dimension,
         )
-        if scaling:
-            self.scaler = MeanScaler(dim=1, keepdim=True)
+        if scaling == "mean" or scaling == True:
+            self.scaler = MeanScaler(keepdim=True, dim=1)
+        elif scaling == "std":
+            self.scaler = StdScaler(keepdim=True, dim=1)
         else:
-            self.scaler = NOPScaler(dim=1, keepdim=True)
+            self.scaler = NOPScaler(keepdim=True, dim=1)
 
         # total feature size
         d_model = self.input_size * len(self.lags_seq) + self._number_of_features
@@ -587,7 +589,7 @@ class AutoformerModel(nn.Module):
             sum(self.embedding_dimension)
             + self.num_feat_dynamic_real
             + self.num_feat_static_real
-            + self.input_size  # the log(scale)
+            + self.input_size * 2 # the log(scale) and log(abs(loc)) features
         )
 
     @property
@@ -673,12 +675,12 @@ class AutoformerModel(nn.Module):
         # target
         context = past_target[:, -self.context_length :]
         observed_context = past_observed_values[:, -self.context_length :]
-        _, scale = self.scaler(context, observed_context)
+        _, loc, scale = self.scaler(context, observed_context)
 
         inputs = (
-            torch.cat((past_target, future_target), dim=1) / scale
+            (torch.cat((past_target, future_target), dim=1) - loc) / scale
             if future_target is not None
-            else past_target / scale
+            else (past_target-loc) / scale
         )
 
         inputs_length = (
@@ -696,9 +698,10 @@ class AutoformerModel(nn.Module):
 
         # embeddings
         embedded_cat = self.embedder(feat_static_cat)
+        log_abs_loc = loc.sign() * loc.abs().log1p() if self.input_size == 1 else  loc.squeeze(1).sign() * loc.squeeze(1).abs().log1p()
         log_scale = scale.log() if self.input_size == 1 else scale.squeeze(1).log()
         static_feat = torch.cat(
-            (embedded_cat, feat_static_real, log_scale),
+            (embedded_cat, feat_static_real, log_abs_loc, log_scale),
             dim=1,
         )
         expanded_static_feat = static_feat.unsqueeze(1).expand(
@@ -724,7 +727,7 @@ class AutoformerModel(nn.Module):
             (reshaped_lagged_sequence, dynamic_features), dim=-1
         )
 
-        return transformer_inputs, scale, dynamic_features, static_feat
+        return transformer_inputs, loc, scale, dynamic_features, static_feat
 
     def output_params(self, transformer_inputs, dynamic_features):
         enc_input = transformer_inputs[:, : self.context_length, ...]
@@ -767,12 +770,12 @@ class AutoformerModel(nn.Module):
 
     @torch.jit.ignore
     def output_distribution(
-        self, params, scale=None, trailing_n=None
+        self, params, loc=None, scale=None, trailing_n=None
     ) -> torch.distributions.Distribution:
         sliced_params = params
         if trailing_n is not None:
             sliced_params = [p[:, -trailing_n:] for p in params]
-        return self.distr_output.distribution(sliced_params, scale=scale)
+        return self.distr_output.distribution(sliced_params, loc=loc, scale=scale)
 
     # for prediction
     def forward(
@@ -785,11 +788,10 @@ class AutoformerModel(nn.Module):
         future_time_feat: torch.Tensor,
         num_parallel_samples: Optional[int] = None,
     ) -> torch.Tensor:
-
         if num_parallel_samples is None:
             num_parallel_samples = self.num_parallel_samples
 
-        enc_input, scale, dynamic_feat, static_feat = self.create_network_inputs(
+        enc_input, loc, scale, dynamic_feat, static_feat = self.create_network_inputs(
             feat_static_cat,
             feat_static_real,
             past_time_feat,
@@ -845,8 +847,9 @@ class AutoformerModel(nn.Module):
         repeated_scale = scale.repeat_interleave(
             repeats=self.num_parallel_samples, dim=0
         )
+        repeated_loc = loc.repeat_interleave(repeats=self.num_parallel_samples, dim=0)
 
-        distr = self.output_distribution(repeated_params, scale=repeated_scale)
+        distr = self.output_distribution(repeated_params, loc=repeated_loc, scale=repeated_scale)
 
         # Future samples
         samples = distr.sample()

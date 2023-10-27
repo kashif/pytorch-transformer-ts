@@ -4,13 +4,13 @@ import torch
 from gluonts.core.component import validated
 from gluonts.dataset.common import Dataset
 from gluonts.dataset.field_names import FieldName
-from gluonts.itertools import Cyclic, IterableSlice, PseudoShuffled
+from gluonts.dataset.loader import as_stacked_batches
+from gluonts.itertools import Cyclic
 from gluonts.time_feature import TimeFeature, time_features_from_frequency_str
+from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.model.estimator import PyTorchLightningEstimator
 from gluonts.torch.model.predictor import PyTorchPredictor
-from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
-from gluonts.torch.util import IterableDataset
 from gluonts.transform import (
     AddAgeFeature,
     AddObservedValuesIndicator,
@@ -20,7 +20,6 @@ from gluonts.transform import (
     ExpectedNumInstanceSampler,
     InstanceSplitter,
     RemoveFields,
-    SelectFields,
     SetField,
     TestSplitSampler,
     Transformation,
@@ -28,9 +27,9 @@ from gluonts.transform import (
     VstackFeatures,
 )
 from gluonts.transform.sampler import InstanceSampler
+
 from lightning_module import TFTLightningModule
 from module import TFTModel
-from torch.utils.data import DataLoader
 
 PREDICTION_INPUT_NAMES = [
     "feat_static_cat",
@@ -215,27 +214,17 @@ class TFTEstimator(PyTorchLightningEstimator):
         shuffle_buffer_length: Optional[int] = None,
         **kwargs,
     ) -> Iterable:
-        transformation = self._create_instance_splitter(
-            module, "training"
-        ) + SelectFields(TRAINING_INPUT_NAMES)
-
-        training_instances = transformation.apply(
-            Cyclic(data)
-            if shuffle_buffer_length is None
-            else PseudoShuffled(
-                Cyclic(data), shuffle_buffer_length=shuffle_buffer_length
-            )
+        data = Cyclic(data).stream()
+        instances = self._create_instance_splitter(module, "training").apply(
+            data, is_train=True
         )
-
-        return IterableSlice(
-            iter(
-                DataLoader(
-                    IterableDataset(training_instances),
-                    batch_size=self.batch_size,
-                    **kwargs,
-                )
-            ),
-            self.num_batches_per_epoch,
+        return as_stacked_batches(
+            instances,
+            batch_size=self.batch_size,
+            shuffle_buffer_length=shuffle_buffer_length,
+            field_names=TRAINING_INPUT_NAMES,
+            output_type=torch.tensor,
+            num_batches_per_epoch=self.num_batches_per_epoch,
         )
 
     def create_validation_data_loader(
@@ -244,16 +233,14 @@ class TFTEstimator(PyTorchLightningEstimator):
         module: TFTLightningModule,
         **kwargs,
     ) -> Iterable:
-        transformation = self._create_instance_splitter(
-            module, "validation"
-        ) + SelectFields(TRAINING_INPUT_NAMES)
-
-        validation_instances = transformation.apply(data)
-
-        return DataLoader(
-            IterableDataset(validation_instances),
+        instances = self._create_instance_splitter(module, "validation").apply(
+            data, is_train=True
+        )
+        return as_stacked_batches(
+            instances,
             batch_size=self.batch_size,
-            **kwargs,
+            field_names=TRAINING_INPUT_NAMES,
+            output_type=torch.tensor,
         )
 
     def create_predictor(

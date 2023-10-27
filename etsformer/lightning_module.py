@@ -58,7 +58,7 @@ class ETSformerLightningModule(pl.LightningModule):
         past_observed_values = batch["past_observed_values"]
         future_observed_values = batch["future_observed_values"]
 
-        etsformer_inputs, scale, _ = self.model.create_network_inputs(
+        etsformer_inputs, loc, scale, _ = self.model.create_network_inputs(
             feat_static_cat,
             feat_static_real,
             past_time_feat,
@@ -68,7 +68,7 @@ class ETSformerLightningModule(pl.LightningModule):
             future_target,
         )
         params = self.model.output_params(etsformer_inputs)
-        distr = self.model.output_distribution(params, scale)
+        distr = self.model.output_distribution(params, loc=loc, scale=scale)
 
         loss_values = self.loss(distr, future_target)
 

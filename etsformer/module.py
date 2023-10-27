@@ -7,7 +7,7 @@ from gluonts.core.component import validated
 from gluonts.time_feature import get_lags_for_frequency
 from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.modules.feature import FeatureEmbedder
-from gluonts.torch.modules.scaler import MeanScaler, NOPScaler
+from gluonts.torch.scaler import MeanScaler, NOPScaler, StdScaler
 
 
 class ETSformerModel(nn.Module):
@@ -22,6 +22,7 @@ class ETSformerModel(nn.Module):
         num_feat_static_cat: int,
         cardinality: List[int],
         # ETSformer arguments
+        model_dim: int,
         k_largest_amplitudes: int,
         embed_kernel_size: int,
         nhead: int,
@@ -32,7 +33,7 @@ class ETSformerModel(nn.Module):
         embedding_dimension: Optional[List[int]] = None,
         distr_output: DistributionOutput = StudentTOutput(),
         lags_seq: Optional[List[int]] = None,
-        scaling: bool = True,
+        scaling: Optional[str] = "std",
         num_parallel_samples: int = 100,
     ) -> None:
         super().__init__()
@@ -55,23 +56,25 @@ class ETSformerModel(nn.Module):
             cardinalities=cardinality,
             embedding_dims=self.embedding_dimension,
         )
-        if scaling:
-            self.scaler = MeanScaler(dim=1, keepdim=True)
+        if scaling == "mean" or scaling == True:
+            self.scaler = MeanScaler(keepdim=True, dim=1)
+        elif scaling == "std":
+            self.scaler = StdScaler(keepdim=True, dim=1)
         else:
-            self.scaler = NOPScaler(dim=1, keepdim=True)
+            self.scaler = NOPScaler(keepdim=True, dim=1)
 
         # total feature size
-        d_model = self.input_size * len(self.lags_seq) + self._number_of_features
+        time_features = self.input_size * len(self.lags_seq) + self._number_of_features
 
         self.context_length = context_length
         self.prediction_length = prediction_length
         self.distr_output = distr_output
-        self.param_proj = distr_output.get_args_proj(d_model)
+        self.param_proj = distr_output.get_args_proj(time_features)
 
         # ETSformer enc-decoder
         self.etsformer = ETSFormer(
-            time_features=d_model,
-            model_dim=d_model,
+            time_features=time_features,
+            model_dim=model_dim,
             embed_kernel_size=embed_kernel_size,
             K=k_largest_amplitudes,
             layers=num_layers,
@@ -85,7 +88,7 @@ class ETSformerModel(nn.Module):
             sum(self.embedding_dimension)
             + self.num_feat_dynamic_real
             + self.num_feat_static_real
-            + self.input_size  # the log(scale)
+            + self.input_size * 2 # the log(scale) and log(abs(loc)) features
         )
 
     @property
@@ -171,12 +174,12 @@ class ETSformerModel(nn.Module):
         # target
         context = past_target[:, -self.context_length :]
         observed_context = past_observed_values[:, -self.context_length :]
-        _, scale = self.scaler(context, observed_context)
+        _, loc, scale = self.scaler(context, observed_context)
 
         inputs = (
-            torch.cat((past_target, future_target), dim=1) / scale
+            (torch.cat((past_target, future_target), dim=1) - loc) / scale
             if future_target is not None
-            else past_target / scale
+            else (past_target-loc) / scale
         )
 
         inputs_length = (
@@ -194,9 +197,10 @@ class ETSformerModel(nn.Module):
 
         # embeddings
         embedded_cat = self.embedder(feat_static_cat)
+        log_abs_loc = loc.sign() * loc.abs().log1p() if self.input_size == 1 else  loc.squeeze(1).sign() * loc.squeeze(1).abs().log1p()
         log_scale = scale.log() if self.input_size == 1 else scale.squeeze(1).log()
         static_feat = torch.cat(
-            (embedded_cat, feat_static_real, log_scale),
+            (embedded_cat, feat_static_real, log_abs_loc, log_scale),
             dim=1,
         )
         expanded_static_feat = static_feat.unsqueeze(1).expand(
@@ -220,7 +224,7 @@ class ETSformerModel(nn.Module):
 
         transformer_inputs = torch.cat((reshaped_lagged_sequence, features), dim=-1)
 
-        return transformer_inputs, scale, static_feat
+        return transformer_inputs, loc, scale, static_feat
 
     def output_params(self, transformer_inputs):
         enc_input = transformer_inputs[:, : self.context_length, ...]
@@ -233,12 +237,12 @@ class ETSformerModel(nn.Module):
 
     @torch.jit.ignore
     def output_distribution(
-        self, params, scale=None, trailing_n=None
+        self, params, loc=None, scale=None, trailing_n=None
     ) -> torch.distributions.Distribution:
         sliced_params = params
         if trailing_n is not None:
             sliced_params = [p[:, -trailing_n:] for p in params]
-        return self.distr_output.distribution(sliced_params, scale=scale)
+        return self.distr_output.distribution(sliced_params, loc=loc, scale=scale)
 
     # for prediction
     def forward(
@@ -251,11 +255,10 @@ class ETSformerModel(nn.Module):
         future_time_feat: torch.Tensor,
         num_parallel_samples: Optional[int] = None,
     ) -> torch.Tensor:
-
         if num_parallel_samples is None:
             num_parallel_samples = self.num_parallel_samples
 
-        encoder_inputs, scale, _ = self.create_network_inputs(
+        encoder_inputs, loc, scale, _ = self.create_network_inputs(
             feat_static_cat,
             feat_static_real,
             past_time_feat,
@@ -277,7 +280,9 @@ class ETSformerModel(nn.Module):
             repeats=self.num_parallel_samples, dim=0
         )
 
-        distr = self.output_distribution(repeated_params, scale=repeated_scale)
+        repeated_loc = loc.repeat_interleave(repeats=self.num_parallel_samples, dim=0)
+
+        distr = self.output_distribution(repeated_params, loc=repeated_loc, scale=repeated_scale)
 
         # Future samples
         samples = distr.sample()

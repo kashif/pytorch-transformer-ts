@@ -1,10 +1,10 @@
 orjson
 torch
-gluonts>=0.13.1
+gluonts>=0.13.5
 pytorch-lightning
 datasets
 xformers
-git+https://github.com/ml-jku/hopfield-layers
+git+https://github.com/kashif/hopfield-layers@pytorch-2
 etsformer-pytorch
 reformer_pytorch
 einops

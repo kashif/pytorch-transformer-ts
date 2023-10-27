@@ -2,12 +2,11 @@ import pytorch_lightning as pl
 import torch
 from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
 from gluonts.torch.util import weighted_average
+
 from module import PyraformerSSModel
 from module import PyraformerLRModel
 from tools import SingleStepLoss as LossFactory
 from tools import AE_loss
-
-# from module import PyraformerModel
 
 
 class PyraformerLightningModule(pl.LightningModule):

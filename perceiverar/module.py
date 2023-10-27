@@ -7,12 +7,12 @@ from torch import einsum
 from einops import rearrange, repeat
 
 from gluonts.core.component import validated
+from gluonts.torch.scaler import MeanScaler, NOPScaler
 from gluonts.time_feature import get_lags_for_frequency
 from gluonts.torch.distributions import (
     DistributionOutput,
     StudentTOutput,
 )
-from gluonts.torch.modules.scaler import MeanScaler, NOPScaler
 from gluonts.torch.modules.feature import FeatureEmbedder
 from gluonts.torch.util import lagged_sequence_values
 
@@ -379,7 +379,7 @@ class PerceiverARModel(nn.Module):
         """
         context = past_target[:, -self.context_length :]
         observed_context = past_observed_values[:, -self.context_length :]
-        _, scale = self.scaler(context, observed_context)
+        _, loc, scale = self.scaler(context, observed_context)
 
         prior_input = past_target[:, : -self.context_length] / scale
         input = (
@@ -409,7 +409,9 @@ class PerceiverARModel(nn.Module):
         )
 
         features = torch.cat((expanded_static_feat, time_feat), dim=-1)
-        lags = lagged_sequence_values(self.lags_seq, prior_input, input)
+        lags = lagged_sequence_values(
+            self.lags_seq, prior_input, input, dim=-1
+        )
         perciever_input = torch.cat((lags, features), dim=-1)
 
         prefix, x = (
@@ -540,6 +542,7 @@ class PerceiverARModel(nn.Module):
                 self.lags_seq,
                 repeated_past_target,
                 scaled_next_sample,
+                dim=-1
             )
 
             next_x = torch.cat((next_lags, next_features), dim=-1)

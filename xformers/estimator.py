@@ -1,21 +1,18 @@
 # +
 from typing import Any, Dict, Iterable, List, Optional
 
-import torch
-from torch.utils.data import DataLoader
-
 import numpy as np
-
+import torch
 from gluonts.core.component import validated
 from gluonts.dataset.common import Dataset
 from gluonts.dataset.field_names import FieldName
-from gluonts.itertools import Cyclic, IterableSlice, PseudoShuffled
+from gluonts.dataset.loader import as_stacked_batches
+from gluonts.itertools import Cyclic
 from gluonts.time_feature import TimeFeature, time_features_from_frequency_str
+from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.model.estimator import PyTorchLightningEstimator
 from gluonts.torch.model.predictor import PyTorchPredictor
-from gluonts.torch.distributions import DistributionOutput, StudentTOutput
 from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
-from gluonts.torch.util import IterableDataset
 from gluonts.transform import (
     AddAgeFeature,
     AddObservedValuesIndicator,
@@ -25,14 +22,12 @@ from gluonts.transform import (
     ExpectedNumInstanceSampler,
     InstanceSplitter,
     RemoveFields,
-    SelectFields,
     SetField,
     TestSplitSampler,
     Transformation,
     ValidationSplitSampler,
     VstackFeatures,
 )
-from gluonts.transform.sampler import InstanceSampler
 
 from lightning_module import XformerLightningModule
 from module import XformerModel
@@ -63,9 +58,10 @@ class XformerEstimator(PyTorchLightningEstimator):
         freq: str,
         prediction_length: int,
         # Xformer arguments
-        nhead: int,
         num_encoder_layers: int,
         num_decoder_layers: int,
+        d_model: int = 64,
+        nhead: int = 4,
         hidden_layer_multiplier: int = 1,
         attention_args={"name": "scaled_dot_product"},
         input_size: int = 1,
@@ -82,7 +78,7 @@ class XformerEstimator(PyTorchLightningEstimator):
         embedding_dimension: Optional[List[int]] = None,
         distr_output: DistributionOutput = StudentTOutput(),
         loss: DistributionLoss = NegativeLogLikelihood(),
-        scaling: bool = True,
+        scaling: Optional[str] = "std",
         lags_seq: Optional[List[int]] = None,
         time_features: Optional[List[TimeFeature]] = None,
         num_parallel_samples: int = 100,
@@ -105,6 +101,7 @@ class XformerEstimator(PyTorchLightningEstimator):
         self.loss = loss
 
         self.input_size = input_size
+        self.d_model = d_model
         self.nhead = nhead
         self.num_encoder_layers = num_encoder_layers
         self.num_decoder_layers = num_decoder_layers
@@ -234,27 +231,17 @@ class XformerEstimator(PyTorchLightningEstimator):
         shuffle_buffer_length: Optional[int] = None,
         **kwargs,
     ) -> Iterable:
-        transformation = self._create_instance_splitter(
-            module, "training"
-        ) + SelectFields(TRAINING_INPUT_NAMES)
-
-        training_instances = transformation.apply(
-            Cyclic(data)
-            if shuffle_buffer_length is None
-            else PseudoShuffled(
-                Cyclic(data), shuffle_buffer_length=shuffle_buffer_length
-            )
+        data = Cyclic(data).stream()
+        instances = self._create_instance_splitter(module, "training").apply(
+            data, is_train=True
         )
-
-        return IterableSlice(
-            iter(
-                DataLoader(
-                    IterableDataset(training_instances),
-                    batch_size=self.batch_size,
-                    **kwargs,
-                )
-            ),
-            self.num_batches_per_epoch,
+        return as_stacked_batches(
+            instances,
+            batch_size=self.batch_size,
+            shuffle_buffer_length=shuffle_buffer_length,
+            field_names=TRAINING_INPUT_NAMES,
+            output_type=torch.tensor,
+            num_batches_per_epoch=self.num_batches_per_epoch,
         )
 
     def create_validation_data_loader(
@@ -263,16 +250,14 @@ class XformerEstimator(PyTorchLightningEstimator):
         module: XformerLightningModule,
         **kwargs,
     ) -> Iterable:
-        transformation = self._create_instance_splitter(
-            module, "validation"
-        ) + SelectFields(TRAINING_INPUT_NAMES)
-
-        validation_instances = transformation.apply(data)
-
-        return DataLoader(
-            IterableDataset(validation_instances),
+        instances = self._create_instance_splitter(module, "validation").apply(
+            data, is_train=True
+        )
+        return as_stacked_batches(
+            instances,
             batch_size=self.batch_size,
-            **kwargs,
+            field_names=TRAINING_INPUT_NAMES,
+            output_type=torch.tensor,
         )
 
     def create_predictor(
@@ -304,6 +289,7 @@ class XformerEstimator(PyTorchLightningEstimator):
             cardinality=self.cardinality,
             embedding_dimension=self.embedding_dimension,
             # xformer arguments
+            d_model=self.d_model,
             nhead=self.nhead,
             num_encoder_layers=self.num_encoder_layers,
             num_decoder_layers=self.num_decoder_layers,
