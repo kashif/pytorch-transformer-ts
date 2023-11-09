@@ -10,4 +10,4 @@ pip3 install -U -r requirements.txt
 
 ## Lag-Llama: Towards Foundation Models for Time Series Forecasting 
 
-For the code of [Lag-Llama](https://arxiv.org/abs/2310.08278), please use the `lag-gpt` folder at https://github.com/mbilos/pytorch-transformer-ts/tree/patch-1. The code will be merged into this repository soon. 
+For the code of [Lag-Llama](https://arxiv.org/abs/2310.08278), please use the [`lag-llama`](https://github.com/kashif/pytorch-transformer-ts/tree/main/lag-llama) folder.
