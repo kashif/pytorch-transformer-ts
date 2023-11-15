@@ -352,13 +352,13 @@ class InformerModel(nn.Module):
     @validated()
     def __init__(
         self,
-        freq: str,
+        # freq: str,
         context_length: int,
         prediction_length: int,
-        num_feat_dynamic_real: int,
-        num_feat_static_real: int,
-        num_feat_static_cat: int,
-        cardinality: List[int],
+        # num_feat_dynamic_real: int,
+        # num_feat_static_real: int,
+        # num_feat_static_cat: int,
+        # cardinality: List[int],
         # Informer arguments
         d_model: int,
         nhead: int,
@@ -372,9 +372,9 @@ class InformerModel(nn.Module):
         distil: bool = True,
         # univariate input
         input_size: int = 1,
-        embedding_dimension: Optional[List[int]] = None,
+        # embedding_dimension: Optional[List[int]] = None,
         distr_output: DistributionOutput = StudentTOutput(),
-        lags_seq: Optional[List[int]] = None,
+        # lags_seq: Optional[List[int]] = None,
         scaling: Optional[str] = "std",
         num_parallel_samples: int = 100,
     ) -> None:
@@ -383,21 +383,34 @@ class InformerModel(nn.Module):
         self.input_size = input_size
 
         self.target_shape = distr_output.event_shape
-        self.num_feat_dynamic_real = num_feat_dynamic_real
-        self.num_feat_static_cat = num_feat_static_cat
-        self.num_feat_static_real = num_feat_static_real
-        self.embedding_dimension = (
-            embedding_dimension
-            if embedding_dimension is not None or cardinality is None
-            else [min(50, (cat + 1) // 2) for cat in cardinality]
+        # self.num_feat_dynamic_real = num_feat_dynamic_real
+        # self.num_feat_static_cat = num_feat_static_cat
+        # self.num_feat_static_real = num_feat_static_real
+        # self.embedding_dimension = (
+        #     embedding_dimension
+        #     if embedding_dimension is not None or cardinality is None
+        #     else [min(50, (cat + 1) // 2) for cat in cardinality]
+        # )
+        # self.lags_seq = lags_seq or get_lags_for_frequency(freq_str=freq)
+        self.lags_seq = sorted(
+            list(
+                set(
+                    get_lags_for_frequency(freq_str="Q", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="M", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="W", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="D", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="H", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="T", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="S", num_default_lags=1)
+                )
+            )
         )
-        self.lags_seq = lags_seq or get_lags_for_frequency(freq_str=freq)
         self.num_parallel_samples = num_parallel_samples
         self.history_length = context_length + max(self.lags_seq)
-        self.embedder = FeatureEmbedder(
-            cardinalities=cardinality,
-            embedding_dims=self.embedding_dimension,
-        )
+        # self.embedder = FeatureEmbedder(
+        #     cardinalities=cardinality,
+        #     embedding_dims=self.embedding_dimension,
+        # )
         if scaling == "mean" or scaling is True:
             self.scaler = MeanScaler(keepdim=True, dim=1)
         elif scaling == "std":
@@ -484,10 +497,10 @@ class InformerModel(nn.Module):
     @property
     def _number_of_features(self) -> int:
         return (
-            sum(self.embedding_dimension)
-            + self.num_feat_dynamic_real
-            + self.num_feat_static_real
-            + self.input_size * 2  # the log(scale) and log(abs(loc)) features
+            # sum(self.embedding_dimension)
+            # + self.num_feat_dynamic_real
+            # + self.num_feat_static_real
+            self.input_size * 2  # the log(scale) and log(abs(loc)) features
         )
 
     @property
@@ -547,29 +560,94 @@ class InformerModel(nn.Module):
             features is None or features.shape[2] == self._number_of_features
         ), f"{features.shape[2]}, expected {self._number_of_features}"
 
+    # def create_network_inputs(
+    #     self,
+    #     feat_static_cat: torch.Tensor,
+    #     feat_static_real: torch.Tensor,
+    #     past_time_feat: torch.Tensor,
+    #     past_target: torch.Tensor,
+    #     past_observed_values: torch.Tensor,
+    #     future_time_feat: Optional[torch.Tensor] = None,
+    #     future_target: Optional[torch.Tensor] = None,
+    # ):
+    #     # time feature
+    #     time_feat = (
+    #         torch.cat(
+    #             (
+    #                 past_time_feat[:, self._past_length - self.context_length :, ...],
+    #                 future_time_feat,
+    #             ),
+    #             dim=1,
+    #         )
+    #         if future_target is not None
+    #         else past_time_feat[:, self._past_length - self.context_length :, ...]
+    #     )
+
+    #     # target
+    #     context = past_target[:, -self.context_length :]
+    #     observed_context = past_observed_values[:, -self.context_length :]
+    #     _, loc, scale = self.scaler(context, observed_context)
+
+    #     inputs = (
+    #         (torch.cat((past_target, future_target), dim=1) - loc) / scale
+    #         if future_target is not None
+    #         else (past_target - loc) / scale
+    #     )
+
+    #     inputs_length = (
+    #         self._past_length + self.prediction_length
+    #         if future_target is not None
+    #         else self._past_length
+    #     )
+    #     assert inputs.shape[1] == inputs_length
+
+    #     subsequences_length = (
+    #         self.context_length + self.prediction_length
+    #         if future_target is not None
+    #         else self.context_length
+    #     )
+
+    #     # embeddings
+    #     embedded_cat = self.embedder(feat_static_cat)
+    #     log_abs_loc = (
+    #         loc.sign() * loc.abs().log1p()
+    #         if self.input_size == 1
+    #         else loc.squeeze(1).sign() * loc.squeeze(1).abs().log1p()
+    #     )
+    #     log_scale = scale.log() if self.input_size == 1 else scale.squeeze(1).log()
+    #     static_feat = torch.cat(
+    #         (embedded_cat, feat_static_real, log_abs_loc, log_scale),
+    #         dim=1,
+    #     )
+    #     expanded_static_feat = static_feat.unsqueeze(1).expand(
+    #         -1, time_feat.shape[1], -1
+    #     )
+
+    #     features = torch.cat((expanded_static_feat, time_feat), dim=-1)
+
+    #     # self._check_shapes(prior_input, inputs, features)
+
+    #     # sequence = torch.cat((prior_input, inputs), dim=1)
+    #     lagged_sequence = self.get_lagged_subsequences(
+    #         sequence=inputs,
+    #         subsequences_length=subsequences_length,
+    #     )
+
+    #     lags_shape = lagged_sequence.shape
+    #     reshaped_lagged_sequence = lagged_sequence.reshape(
+    #         lags_shape[0], lags_shape[1], -1
+    #     )
+
+    #     transformer_inputs = torch.cat((reshaped_lagged_sequence, features), dim=-1)
+
+    #     return transformer_inputs, loc, scale, static_feat
+
     def create_network_inputs(
         self,
-        feat_static_cat: torch.Tensor,
-        feat_static_real: torch.Tensor,
-        past_time_feat: torch.Tensor,
         past_target: torch.Tensor,
         past_observed_values: torch.Tensor,
-        future_time_feat: Optional[torch.Tensor] = None,
         future_target: Optional[torch.Tensor] = None,
     ):
-        # time feature
-        time_feat = (
-            torch.cat(
-                (
-                    past_time_feat[:, self._past_length - self.context_length :, ...],
-                    future_time_feat,
-                ),
-                dim=1,
-            )
-            if future_target is not None
-            else past_time_feat[:, self._past_length - self.context_length :, ...]
-        )
-
         # target
         context = past_target[:, -self.context_length :]
         observed_context = past_observed_values[:, -self.context_length :]
@@ -593,9 +671,17 @@ class InformerModel(nn.Module):
             if future_target is not None
             else self.context_length
         )
+        lagged_sequence = self.get_lagged_subsequences(
+            sequence=inputs,
+            subsequences_length=subsequences_length,
+        )
 
-        # embeddings
-        embedded_cat = self.embedder(feat_static_cat)
+        lags_shape = lagged_sequence.shape
+        reshaped_lagged_sequence = lagged_sequence.reshape(
+            lags_shape[0], lags_shape[1], -1
+        )
+
+                # embeddings
         log_abs_loc = (
             loc.sign() * loc.abs().log1p()
             if self.input_size == 1
@@ -603,16 +689,16 @@ class InformerModel(nn.Module):
         )
         log_scale = scale.log() if self.input_size == 1 else scale.squeeze(1).log()
         static_feat = torch.cat(
-            (embedded_cat, feat_static_real, log_abs_loc, log_scale),
+            (log_abs_loc, log_scale),
             dim=1,
         )
         expanded_static_feat = static_feat.unsqueeze(1).expand(
-            -1, time_feat.shape[1], -1
+            -1, lags_shape[1], -1
         )
 
-        features = torch.cat((expanded_static_feat, time_feat), dim=-1)
+        # features = torch.cat((expanded_static_feat, time_feat), dim=-1)
 
-        # self._check_shapes(prior_input, inputs, features)
+        # self._check_shapes(prior_input, inputs, expanded_static_feat)
 
         # sequence = torch.cat((prior_input, inputs), dim=1)
         lagged_sequence = self.get_lagged_subsequences(
@@ -625,10 +711,11 @@ class InformerModel(nn.Module):
             lags_shape[0], lags_shape[1], -1
         )
 
-        transformer_inputs = torch.cat((reshaped_lagged_sequence, features), dim=-1)
+        transformer_inputs = torch.cat((reshaped_lagged_sequence, expanded_static_feat), dim=-1)
 
         return transformer_inputs, loc, scale, static_feat
 
+        
     def output_params(self, transformer_inputs):
         projected_inputs = self.embed(transformer_inputs)
         enc_input = projected_inputs[:, : self.context_length, ...]
@@ -651,25 +738,27 @@ class InformerModel(nn.Module):
     # for prediction
     def forward(
         self,
-        feat_static_cat: torch.Tensor,
-        feat_static_real: torch.Tensor,
-        past_time_feat: torch.Tensor,
+        # feat_static_cat: torch.Tensor,
+        # feat_static_real: torch.Tensor,
+        # past_time_feat: torch.Tensor,
         past_target: torch.Tensor,
         past_observed_values: torch.Tensor,
-        future_time_feat: torch.Tensor,
+        # future_time_feat: torch.Tensor,
         num_parallel_samples: Optional[int] = None,
     ) -> torch.Tensor:
         if num_parallel_samples is None:
             num_parallel_samples = self.num_parallel_samples
 
+        # encoder_inputs, loc, scale, static_feat = self.create_network_inputs(
+        #     feat_static_cat,
+        #     feat_static_real,
+        #     past_time_feat,
+        #     past_target,
+        #     past_observed_values,
+        # )
         encoder_inputs, loc, scale, static_feat = self.create_network_inputs(
-            feat_static_cat,
-            feat_static_real,
-            past_time_feat,
-            past_target,
-            past_observed_values,
-        )
-
+            past_target, past_observed_values)
+        
         enc_out, _ = self.encoder(self.embed(encoder_inputs))
 
         repeated_loc = loc.repeat_interleave(repeats=self.num_parallel_samples, dim=0)
@@ -677,19 +766,30 @@ class InformerModel(nn.Module):
             repeats=self.num_parallel_samples, dim=0
         )
 
+        # repeated_past_target = (
+        #     past_target.repeat_interleave(repeats=self.num_parallel_samples, dim=0)
+        #     - repeated_loc
+        # ) / repeated_scale
+
+        # expanded_static_feat = static_feat.unsqueeze(1).expand(
+        #     -1, future_time_feat.shape[1], -1
+        # )
+        # features = torch.cat((expanded_static_feat, future_time_feat), dim=-1)
+        # repeated_features = features.repeat_interleave(
+        #     repeats=self.num_parallel_samples, dim=0
+        # )
+        repeated_static_feat = static_feat.repeat_interleave(
+            repeats=num_parallel_samples, dim=0
+        )
+        expanded_static_feat = repeated_static_feat.unsqueeze(1).expand(
+            -1, self.prediction_length, -1
+        )
+
         repeated_past_target = (
             past_target.repeat_interleave(repeats=self.num_parallel_samples, dim=0)
             - repeated_loc
         ) / repeated_scale
-
-        expanded_static_feat = static_feat.unsqueeze(1).expand(
-            -1, future_time_feat.shape[1], -1
-        )
-        features = torch.cat((expanded_static_feat, future_time_feat), dim=-1)
-        repeated_features = features.repeat_interleave(
-            repeats=self.num_parallel_samples, dim=0
-        )
-
+        
         repeated_enc_out = enc_out.repeat_interleave(
             repeats=self.num_parallel_samples, dim=0
         )
@@ -712,8 +812,9 @@ class InformerModel(nn.Module):
                 lags_shape[0], lags_shape[1], -1
             )
 
+            #
             decoder_input = torch.cat(
-                (reshaped_lagged_sequence, repeated_features[:, : k + 1]), dim=-1
+                (reshaped_lagged_sequence, expanded_static_feat[:, : k + 1]), dim=-1
             )
 
             output = self.decoder(self.embed(decoder_input), repeated_enc_out)

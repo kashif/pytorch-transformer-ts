@@ -43,7 +43,7 @@ class DataEmbedding_wo_pos(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x, x_mark):
-        x = self.value_embedding(x) + self.temporal_embedding(x_mark)
+        x = self.value_embedding(x) #+ self.temporal_embedding(x_mark)
         return self.dropout(x)
 
 
@@ -452,13 +452,13 @@ class AutoformerModel(nn.Module):
     @validated()
     def __init__(
         self,
-        freq: str,
+        # freq: str,
         context_length: int,
         prediction_length: int,
-        num_feat_dynamic_real: int,
-        num_feat_static_real: int,
-        num_feat_static_cat: int,
-        cardinality: List[int],
+        # num_feat_dynamic_real: int,
+        # num_feat_static_real: int,
+        # num_feat_static_cat: int,
+        # cardinality: List[int],
         # autoformer arguments
         n_heads: int,
         num_encoder_layers: int,
@@ -470,9 +470,9 @@ class AutoformerModel(nn.Module):
         moving_avg: int = 25,
         # univariate input
         input_size: int = 1,
-        embedding_dimension: Optional[List[int]] = None,
+        # embedding_dimension: Optional[List[int]] = None,
         distr_output: DistributionOutput = StudentTOutput(),
-        lags_seq: Optional[List[int]] = None,
+        # lags_seq: Optional[List[int]] = None,
         scaling: Optional[str] = "mean",
         num_parallel_samples: int = 100,
     ) -> None:
@@ -481,21 +481,35 @@ class AutoformerModel(nn.Module):
         self.input_size = input_size
 
         self.target_shape = distr_output.event_shape
-        self.num_feat_dynamic_real = num_feat_dynamic_real
-        self.num_feat_static_cat = num_feat_static_cat
-        self.num_feat_static_real = num_feat_static_real
-        self.embedding_dimension = (
-            embedding_dimension
-            if embedding_dimension is not None or cardinality is None
-            else [min(50, (cat + 1) // 2) for cat in cardinality]
+        # self.num_feat_dynamic_real = num_feat_dynamic_real
+        # self.num_feat_static_cat = num_feat_static_cat
+        # self.num_feat_static_real = num_feat_static_real
+        # self.embedding_dimension = (
+        #     embedding_dimension
+        #     if embedding_dimension is not None or cardinality is None
+        #     else [min(50, (cat + 1) // 2) for cat in cardinality]
+        # )
+        # self.lags_seq = lags_seq or get_lags_for_frequency(freq_str=freq)
+        self.lags_seq = sorted(
+            list(
+                set(
+                    get_lags_for_frequency(freq_str="Q", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="M", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="W", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="D", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="H", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="T", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="S", num_default_lags=1)
+                )
+            )
         )
-        self.lags_seq = lags_seq or get_lags_for_frequency(freq_str=freq)
+
         self.num_parallel_samples = num_parallel_samples
         self.history_length = context_length + max(self.lags_seq)
-        self.embedder = FeatureEmbedder(
-            cardinalities=cardinality,
-            embedding_dims=self.embedding_dimension,
-        )
+        # self.embedder = FeatureEmbedder(
+        #     cardinalities=cardinality,
+        #     embedding_dims=self.embedding_dimension,
+        # )
         if scaling == "mean" or scaling == True:
             self.scaler = MeanScaler(keepdim=True, dim=1)
         elif scaling == "std":
@@ -586,10 +600,10 @@ class AutoformerModel(nn.Module):
     @property
     def _number_of_features(self) -> int:
         return (
-            sum(self.embedding_dimension)
-            + self.num_feat_dynamic_real
-            + self.num_feat_static_real
-            + self.input_size * 2 # the log(scale) and log(abs(loc)) features
+            # sum(self.embedding_dimension)
+            # + self.num_feat_dynamic_real
+            # + self.num_feat_static_real
+             self.input_size * 2 # the log(scale) and log(abs(loc)) features
         )
 
     @property
@@ -651,26 +665,26 @@ class AutoformerModel(nn.Module):
 
     def create_network_inputs(
         self,
-        feat_static_cat: torch.Tensor,
-        feat_static_real: torch.Tensor,
-        past_time_feat: torch.Tensor,
+        # feat_static_cat: torch.Tensor,
+        # feat_static_real: torch.Tensor,
+        # past_time_feat: torch.Tensor,
         past_target: torch.Tensor,
         past_observed_values: torch.Tensor,
-        future_time_feat: Optional[torch.Tensor] = None,
+        # future_time_feat: Optional[torch.Tensor] = None,
         future_target: Optional[torch.Tensor] = None,
     ):
         # time feature
-        time_feat = (
-            torch.cat(
-                (
-                    past_time_feat[:, self._past_length - self.context_length :, ...],
-                    future_time_feat,
-                ),
-                dim=1,
-            )
-            if future_target is not None
-            else past_time_feat[:, self._past_length - self.context_length :, ...]
-        )
+        # time_feat = (
+        #     torch.cat(
+        #         (
+        #             past_time_feat[:, self._past_length - self.context_length :, ...],
+        #             future_time_feat,
+        #         ),
+        #         dim=1,
+        #     )
+        #     if future_target is not None
+        #     else past_time_feat[:, self._past_length - self.context_length :, ...]
+        # )
 
         # target
         context = past_target[:, -self.context_length :]
@@ -695,24 +709,6 @@ class AutoformerModel(nn.Module):
             if future_target is not None
             else self.context_length
         )
-
-        # embeddings
-        embedded_cat = self.embedder(feat_static_cat)
-        log_abs_loc = loc.sign() * loc.abs().log1p() if self.input_size == 1 else  loc.squeeze(1).sign() * loc.squeeze(1).abs().log1p()
-        log_scale = scale.log() if self.input_size == 1 else scale.squeeze(1).log()
-        static_feat = torch.cat(
-            (embedded_cat, feat_static_real, log_abs_loc, log_scale),
-            dim=1,
-        )
-        expanded_static_feat = static_feat.unsqueeze(1).expand(
-            -1, time_feat.shape[1], -1
-        )
-
-        dynamic_features = torch.cat((expanded_static_feat, time_feat), dim=-1)
-
-        # self._check_shapes(prior_input, inputs, features)
-
-        # sequence = torch.cat((prior_input, inputs), dim=1)
         lagged_sequence = self.get_lagged_subsequences(
             sequence=inputs,
             subsequences_length=subsequences_length,
@@ -722,19 +718,37 @@ class AutoformerModel(nn.Module):
         reshaped_lagged_sequence = lagged_sequence.reshape(
             lags_shape[0], lags_shape[1], -1
         )
-
-        transformer_inputs = torch.cat(
-            (reshaped_lagged_sequence, dynamic_features), dim=-1
+        # embeddings
+        # embedded_cat = self.embedder(feat_static_cat)
+        log_abs_loc = loc.sign() * loc.abs().log1p() if self.input_size == 1 else  loc.squeeze(1).sign() * loc.squeeze(1).abs().log1p()
+        log_scale = scale.log() if self.input_size == 1 else scale.squeeze(1).log()
+        static_feat = torch.cat(
+            (log_abs_loc, log_scale),
+            dim=1,
+        )
+        expanded_static_feat = static_feat.unsqueeze(1).expand(
+            -1, lags_shape[1], -1
         )
 
-        return transformer_inputs, loc, scale, dynamic_features, static_feat
+        # dynamic_features = torch.cat((expanded_static_feat, time_feat), dim=-1)
 
-    def output_params(self, transformer_inputs, dynamic_features):
+        # self._check_shapes(prior_input, inputs, features)
+
+        # sequence = torch.cat((prior_input, inputs), dim=1)
+
+
+        transformer_inputs = torch.cat(
+            (reshaped_lagged_sequence, expanded_static_feat), dim=-1
+        )
+        return transformer_inputs, loc, scale, static_feat
+        # return transformer_inputs, loc, scale, dynamic_features, static_feat
+
+    def output_params(self, transformer_inputs):
         enc_input = transformer_inputs[:, : self.context_length, ...]
-        # dec_input = transformer_inputs[:, self.context_length :, ...]
-        dec_dynamic_feat = dynamic_features[
-            :, self.context_length - self.label_length :, ...
-        ]
+        dec_input = transformer_inputs[:, self.context_length - self.label_length :, ...]
+        # dec_dynamic_feat = dynamic_features[
+        #     :, self.context_length - self.label_length :, ...
+        # ]
 
         # decomp init
         mean = (
@@ -758,7 +772,8 @@ class AutoformerModel(nn.Module):
         enc_out, _ = self.encoder(enc_input, attn_mask=None)
 
         # dec
-        dec_input = self.dec_embedding(seasonal_init, dec_dynamic_feat)
+        dec_input = self.dec_embedding(seasonal_init, dec_input)
+        
         seasonal_part, trend_part = self.decoder(
             dec_input, enc_out, x_mask=None, cross_mask=None, trend=trend_init
         )
@@ -780,33 +795,40 @@ class AutoformerModel(nn.Module):
     # for prediction
     def forward(
         self,
-        feat_static_cat: torch.Tensor,
-        feat_static_real: torch.Tensor,
-        past_time_feat: torch.Tensor,
+        # feat_static_cat: torch.Tensor,
+        # feat_static_real: torch.Tensor,
+        # past_time_feat: torch.Tensor,
         past_target: torch.Tensor,
         past_observed_values: torch.Tensor,
-        future_time_feat: torch.Tensor,
+        # future_time_feat: torch.Tensor,
         num_parallel_samples: Optional[int] = None,
     ) -> torch.Tensor:
         if num_parallel_samples is None:
             num_parallel_samples = self.num_parallel_samples
 
-        enc_input, loc, scale, dynamic_feat, static_feat = self.create_network_inputs(
-            feat_static_cat,
-            feat_static_real,
-            past_time_feat,
+        enc_input, loc, scale, static_feat = self.create_network_inputs(
+            # feat_static_cat,
+            # feat_static_real,
+            # past_time_feat,
             past_target,
             past_observed_values,
         )
-
-        expanded_static_feat = static_feat.unsqueeze(1).expand(
-            -1, future_time_feat.shape[1], -1
+        repeated_static_feat = static_feat.repeat_interleave(
+            repeats=num_parallel_samples, dim=0
         )
-        features = torch.cat((expanded_static_feat, future_time_feat), dim=-1)
-
-        dec_dynamic_feat = torch.cat(
-            (dynamic_feat[:, -self.label_length :, :], features), dim=1
+        expanded_static_feat = repeated_static_feat.unsqueeze(1).expand(
+            -1, self.prediction_length, -1
         )
+
+        # expanded_static_feat = static_feat.unsqueeze(1).expand(
+        #     -1, future_time_feat.shape[1], -1
+        # )
+        
+        # features = torch.cat((expanded_static_feat, future_time_feat), dim=-1)
+
+        # dec_dynamic_feat = torch.cat(
+        #     (dynamic_feat[:, -self.label_length :, :], expanded_static_feat), dim=1
+        # )
 
         # decomp init
         mean = (
@@ -830,7 +852,7 @@ class AutoformerModel(nn.Module):
         enc_out, _ = self.encoder(enc_input, attn_mask=None)
 
         # dec
-        dec_input = self.dec_embedding(seasonal_init, dec_dynamic_feat)
+        dec_input = self.dec_embedding(seasonal_init, expanded_static_feat)
         seasonal_part, trend_part = self.decoder(
             dec_input, enc_out, x_mask=None, cross_mask=None, trend=trend_init
         )

@@ -14,25 +14,26 @@ class ETSformerModel(nn.Module):
     @validated()
     def __init__(
         self,
-        freq: str,
+        # freq: str,
         context_length: int,
         prediction_length: int,
-        num_feat_dynamic_real: int,
-        num_feat_static_real: int,
-        num_feat_static_cat: int,
-        cardinality: List[int],
+        # num_feat_dynamic_real: int,
+        # num_feat_static_real: int,
+        # num_feat_static_cat: int,
+        # cardinality: List[int],
         # ETSformer arguments
         model_dim: int,
         k_largest_amplitudes: int,
         embed_kernel_size: int,
         nhead: int,
         num_layers: int,
+        d_model: int,
         dropout: float = 0.1,
         # univariate input
         input_size: int = 1,
         embedding_dimension: Optional[List[int]] = None,
         distr_output: DistributionOutput = StudentTOutput(),
-        lags_seq: Optional[List[int]] = None,
+        # lags_seq: Optional[List[int]] = None,
         scaling: Optional[str] = "std",
         num_parallel_samples: int = 100,
     ) -> None:
@@ -41,21 +42,25 @@ class ETSformerModel(nn.Module):
         self.input_size = input_size
 
         self.target_shape = distr_output.event_shape
-        self.num_feat_dynamic_real = num_feat_dynamic_real
-        self.num_feat_static_cat = num_feat_static_cat
-        self.num_feat_static_real = num_feat_static_real
-        self.embedding_dimension = (
-            embedding_dimension
-            if embedding_dimension is not None or cardinality is None
-            else [min(50, (cat + 1) // 2) for cat in cardinality]
+        self.lags_seq = sorted(
+            list(
+                set(
+                    get_lags_for_frequency(freq_str="Q", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="M", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="W", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="D", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="H", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="T", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="S", num_default_lags=1)
+                )
+            )
         )
-        self.lags_seq = lags_seq or get_lags_for_frequency(freq_str=freq)
         self.num_parallel_samples = num_parallel_samples
         self.history_length = context_length + max(self.lags_seq)
-        self.embedder = FeatureEmbedder(
-            cardinalities=cardinality,
-            embedding_dims=self.embedding_dimension,
-        )
+        # self.embedder = FeatureEmbedder(
+        #     cardinalities=cardinality,
+        #     embedding_dims=self.embedding_dimension,
+        # )
         if scaling == "mean" or scaling == True:
             self.scaler = MeanScaler(keepdim=True, dim=1)
         elif scaling == "std":
@@ -66,14 +71,15 @@ class ETSformerModel(nn.Module):
         # total feature size
         time_features = self.input_size * len(self.lags_seq) + self._number_of_features
 
+        # time_features = self.input_size#self._number_of_features
+
         self.context_length = context_length
         self.prediction_length = prediction_length
         self.distr_output = distr_output
         self.param_proj = distr_output.get_args_proj(time_features)
-
         # ETSformer enc-decoder
         self.etsformer = ETSFormer(
-            time_features=time_features,
+            # time_features=time_features,
             model_dim=model_dim,
             embed_kernel_size=embed_kernel_size,
             K=k_largest_amplitudes,
@@ -85,10 +91,10 @@ class ETSformerModel(nn.Module):
     @property
     def _number_of_features(self) -> int:
         return (
-            sum(self.embedding_dimension)
-            + self.num_feat_dynamic_real
-            + self.num_feat_static_real
-            + self.input_size * 2 # the log(scale) and log(abs(loc)) features
+            # sum(self.embedding_dimension)
+            # + self.num_feat_dynamic_real
+            # + self.num_feat_static_real
+            self.input_size * 2 # the log(scale) and log(abs(loc)) features
         )
 
     @property
@@ -150,26 +156,26 @@ class ETSformerModel(nn.Module):
 
     def create_network_inputs(
         self,
-        feat_static_cat: torch.Tensor,
-        feat_static_real: torch.Tensor,
-        past_time_feat: torch.Tensor,
+        # feat_static_cat: torch.Tensor,
+        # feat_static_real: torch.Tensor,
+        # past_time_feat: torch.Tensor,
         past_target: torch.Tensor,
         past_observed_values: torch.Tensor,
-        future_time_feat: Optional[torch.Tensor] = None,
+        # future_time_feat: Optional[torch.Tensor] = None,
         future_target: Optional[torch.Tensor] = None,
     ):
         # time feature
-        time_feat = (
-            torch.cat(
-                (
-                    past_time_feat[:, self._past_length - self.context_length :, ...],
-                    future_time_feat,
-                ),
-                dim=1,
-            )
-            if future_target is not None
-            else past_time_feat[:, self._past_length - self.context_length :, ...]
-        )
+        # time_feat = (
+        #     torch.cat(
+        #         (
+        #             past_time_feat[:, self._past_length - self.context_length :, ...],
+        #             future_time_feat,
+        #         ),
+        #         dim=1,
+        #     )
+        #     if future_target is not None
+        #     else past_time_feat[:, self._past_length - self.context_length :, ...]
+        # )
 
         # target
         context = past_target[:, -self.context_length :]
@@ -196,22 +202,13 @@ class ETSformerModel(nn.Module):
         )
 
         # embeddings
-        embedded_cat = self.embedder(feat_static_cat)
+        # embedded_cat = self.embedder(feat_static_cat)
         log_abs_loc = loc.sign() * loc.abs().log1p() if self.input_size == 1 else  loc.squeeze(1).sign() * loc.squeeze(1).abs().log1p()
         log_scale = scale.log() if self.input_size == 1 else scale.squeeze(1).log()
         static_feat = torch.cat(
-            (embedded_cat, feat_static_real, log_abs_loc, log_scale),
+            (log_abs_loc, log_scale),
             dim=1,
         )
-        expanded_static_feat = static_feat.unsqueeze(1).expand(
-            -1, time_feat.shape[1], -1
-        )
-
-        features = torch.cat((expanded_static_feat, time_feat), dim=-1)
-
-        # self._check_shapes(prior_input, inputs, features)
-
-        # sequence = torch.cat((prior_input, inputs), dim=1)
         lagged_sequence = self.get_lagged_subsequences(
             sequence=inputs,
             subsequences_length=subsequences_length,
@@ -222,8 +219,18 @@ class ETSformerModel(nn.Module):
             lags_shape[0], lags_shape[1], -1
         )
 
-        transformer_inputs = torch.cat((reshaped_lagged_sequence, features), dim=-1)
+        expanded_static_feat = static_feat.unsqueeze(1).expand(
+            -1, lags_shape[1], -1
+        )
 
+        # features = torch.cat((expanded_static_feat), dim=-1)
+
+        # self._check_shapes(prior_input, inputs, features)
+
+        # sequence = torch.cat((prior_input, inputs), dim=1)
+
+        transformer_inputs = torch.cat((reshaped_lagged_sequence, expanded_static_feat), dim=-1)
+        print(transformer_inputs.shape)
         return transformer_inputs, loc, scale, static_feat
 
     def output_params(self, transformer_inputs):
@@ -247,21 +254,21 @@ class ETSformerModel(nn.Module):
     # for prediction
     def forward(
         self,
-        feat_static_cat: torch.Tensor,
-        feat_static_real: torch.Tensor,
-        past_time_feat: torch.Tensor,
+        # feat_static_cat: torch.Tensor,
+        # feat_static_real: torch.Tensor,
+        # past_time_feat: torch.Tensor,
         past_target: torch.Tensor,
         past_observed_values: torch.Tensor,
-        future_time_feat: torch.Tensor,
+        # future_time_feat: torch.Tensor,
         num_parallel_samples: Optional[int] = None,
     ) -> torch.Tensor:
         if num_parallel_samples is None:
             num_parallel_samples = self.num_parallel_samples
 
         encoder_inputs, loc, scale, _ = self.create_network_inputs(
-            feat_static_cat,
-            feat_static_real,
-            past_time_feat,
+            # feat_static_cat,
+            # feat_static_real,
+            # past_time_feat,
             past_target,
             past_observed_values,
         )

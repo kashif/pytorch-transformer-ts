@@ -4,33 +4,42 @@ from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
 from gluonts.torch.util import weighted_average
 
 from module import XformerModel
-
+from aug import freq_mask, freq_mix
+import random
 
 class XformerLightningModule(pl.LightningModule):
     def __init__(
         self,
-        model: XformerModel,
+        model_kwargs: dict,
         loss: DistributionLoss = NegativeLogLikelihood(),
-        lr: float = 5e-3,
-        weight_decay: float = 1e-6,
+        lr: float = 1e-3,
+        weight_decay: float = 1e-8,
+        aug_prob: float = 0.1,
+        aug_rate: float = 0.1,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
-        self.model = model
-        self.loss = loss
-        self.lr = lr
-        self.weight_decay = weight_decay
+        self.model = XformerModel(**self.hparams.model_kwargs)
+        self.loss = self.hparams.loss
+        self.lr = self.hparams.lr
+        self.weight_decay = self.hparams.weight_decay
+        self.aug_prob = self.hparams.aug_prob
+        self.aug_rate = self.hparams.aug_rate
 
     def training_step(self, batch, batch_idx: int):
         """Execute training step"""
+        if random.random() < self.aug_prob:
+            if random.random() < 0.5:
+                batch["past_target"], batch["future_target"] = freq_mask(
+                    batch["past_target"], batch["future_target"], rate=self.aug_rate
+                )
+            else:
+                batch["past_target"], batch["future_target"] = freq_mix(
+                    batch["past_target"], batch["future_target"], rate=self.aug_rate
+                )
+
         train_loss = self(batch)
-        self.log(
-            "train_loss",
-            train_loss,
-            on_epoch=True,
-            on_step=False,
-            prog_bar=True,
-        )
+        self.log("train_loss", train_loss, on_epoch=True, on_step=False, prog_bar=True)
         return train_loss
 
     def validation_step(self, batch, batch_idx: int):
@@ -49,22 +58,21 @@ class XformerLightningModule(pl.LightningModule):
         )
 
     def forward(self, batch):
-        feat_static_cat = batch["feat_static_cat"]
-        feat_static_real = batch["feat_static_real"]
-        past_time_feat = batch["past_time_feat"]
+        # feat_static_cat = batch["feat_static_cat"]
+        # feat_static_real = batch["feat_static_real"]
+        # past_time_feat = batch["past_time_feat"]
+        # past_target = batch["past_target"]
+        # future_time_feat = batch["future_time_feat"]
+        # future_target = batch["future_target"]
+        # past_observed_values = batch["past_observed_values"]
+        # future_observed_values = batch["future_observed_values"]
         past_target = batch["past_target"]
-        future_time_feat = batch["future_time_feat"]
         future_target = batch["future_target"]
         past_observed_values = batch["past_observed_values"]
         future_observed_values = batch["future_observed_values"]
-
         transformer_inputs, loc, scale, _ = self.model.create_network_inputs(
-            feat_static_cat,
-            feat_static_real,
-            past_time_feat,
             past_target,
             past_observed_values,
-            future_time_feat,
             future_target,
         )
         params = self.model.output_params(transformer_inputs)
