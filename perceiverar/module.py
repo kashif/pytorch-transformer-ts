@@ -227,15 +227,15 @@ class PerceiverARModel(nn.Module):
     @validated()
     def __init__(
         self,
-        freq: str,
+        # freq: str,
         depth: int,
         context_length: int,
         prediction_length: int,
-        num_feat_dynamic_real: int,
-        num_feat_static_real: int,
-        num_feat_static_cat: int,
-        cardinality: List[int],
-        embedding_dimension: Optional[List[int]] = None,
+        # num_feat_dynamic_real: int,
+        # num_feat_static_real: int,
+        # num_feat_static_cat: int,
+        # cardinality: List[int],
+        # embedding_dimension: Optional[List[int]] = None,
         input_size: int = 1,
         perceive_depth: int = 1,
         heads: int = 2,
@@ -245,7 +245,7 @@ class PerceiverARModel(nn.Module):
         dropout_rate: float = 0.1,
         cross_attn_dropout: float = 0.1,
         distr_output: DistributionOutput = StudentTOutput(),
-        lags_seq: Optional[List[int]] = None,
+        # lags_seq: Optional[List[int]] = None,
         scaling: bool = True,
         num_parallel_samples: int = 100,
     ) -> None:
@@ -256,21 +256,36 @@ class PerceiverARModel(nn.Module):
         self.prediction_length = prediction_length
         self.distr_output = distr_output
         self.target_shape = distr_output.event_shape
-        self.num_feat_dynamic_real = num_feat_dynamic_real
-        self.num_feat_static_cat = num_feat_static_cat
-        self.num_feat_static_real = num_feat_static_real
-        self.embedding_dimension = (
-            embedding_dimension
-            if embedding_dimension is not None or cardinality is None
-            else [min(50, (cat + 1) // 2) for cat in cardinality]
+        # self.num_feat_dynamic_real = num_feat_dynamic_real
+        # self.num_feat_static_cat = num_feat_static_cat
+        # self.num_feat_static_real = num_feat_static_real
+        # self.embedding_dimension = (
+        #     embedding_dimension
+        #     if embedding_dimension is not None or cardinality is None
+        #     else [min(50, (cat + 1) // 2) for cat in cardinality]
+        # )
+        # self.lags_seq = lags_seq or get_lags_for_frequency(freq_str=freq)
+        self.lags_seq = sorted(
+            list(
+                set(
+                    get_lags_for_frequency(freq_str="Q", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="M", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="W", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="D", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="H", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="T", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="S", num_default_lags=1)
+                )
+            )
         )
-        self.lags_seq = lags_seq or get_lags_for_frequency(freq_str=freq)
+
         self.num_parallel_samples = num_parallel_samples
         self.past_length = self.context_length + max(self.lags_seq)
-        self.embedder = FeatureEmbedder(
-            cardinalities=cardinality,
-            embedding_dims=self.embedding_dimension,
-        )
+        # self.embedder = FeatureEmbedder(
+        #     cardinalities=cardinality,
+        #     embedding_dims=self.embedding_dimension,
+        # )
+
         if scaling:
             self.scaler = MeanScaler(dim=1, keepdim=True)
         else:
@@ -314,10 +329,10 @@ class PerceiverARModel(nn.Module):
     @property
     def _number_of_features(self) -> int:
         return (
-            sum(self.embedding_dimension)
-            + self.num_feat_dynamic_real
-            + self.num_feat_static_real
-            + self.input_size  # the log(scale)
+            # sum(self.embedding_dimension)
+            # + self.num_feat_dynamic_real
+            # + self.num_feat_static_real
+            self.input_size  # the log(scale)
         )
 
     @property
@@ -326,12 +341,12 @@ class PerceiverARModel(nn.Module):
 
     def lagged_perciever(
         self,
-        feat_static_cat: torch.Tensor,
-        feat_static_real: torch.Tensor,
-        past_time_feat: torch.Tensor,
+        # feat_static_cat: torch.Tensor,
+        # feat_static_real: torch.Tensor,
+        # past_time_feat: torch.Tensor,
         past_target: torch.Tensor,
         past_observed_values: torch.Tensor,
-        future_time_feat: Optional[torch.Tensor] = None,
+        # future_time_feat: Optional[torch.Tensor] = None,
         future_target: Optional[torch.Tensor] = None,
     ) -> Tuple[
         Tuple[torch.Tensor, ...],
@@ -388,31 +403,28 @@ class PerceiverARModel(nn.Module):
             else context / scale
         )
 
-        embedded_cat = self.embedder(feat_static_cat)
+        # embedded_cat = self.embedder(feat_static_cat)
         log_scale = scale.log() if self.input_size == 1 else scale.squeeze(1).log()
-        static_feat = torch.cat(
-            (embedded_cat, feat_static_real, log_scale),
-            dim=1,
-        )
+        static_feat = log_scale #torch.cat((log_scale),dim=1,)
         expanded_static_feat = static_feat.unsqueeze(1).expand(-1, input.shape[1], -1)
 
-        time_feat = (
-            torch.cat(
-                (
-                    past_time_feat[:, -self.context_length + 1 :, ...],
-                    future_time_feat,
-                ),
-                dim=1,
-            )
-            if future_time_feat is not None
-            else past_time_feat[:, -self.context_length + 1 :, ...]
-        )
+        # time_feat = (
+        #     torch.cat(
+        #         (
+        #             past_time_feat[:, -self.context_length + 1 :, ...],
+        #             future_time_feat,
+        #         ),
+        #         dim=1,
+        #     )
+        #     if future_time_feat is not None
+        #     else past_time_feat[:, -self.context_length + 1 :, ...]
+        # )
 
-        features = torch.cat((expanded_static_feat, time_feat), dim=-1)
+        # features = torch.cat((expanded_static_feat, time_feat), dim=-1)
         lags = lagged_sequence_values(
             self.lags_seq, prior_input, input, dim=-1
         )
-        perciever_input = torch.cat((lags, features), dim=-1)
+        perciever_input = torch.cat((lags, expanded_static_feat), dim=-1)
 
         prefix, x = (
             perciever_input[:, : self.context_length - 1, ...],
@@ -462,12 +474,12 @@ class PerceiverARModel(nn.Module):
 
     def forward(
         self,
-        feat_static_cat: torch.Tensor,
-        feat_static_real: torch.Tensor,
-        past_time_feat: torch.Tensor,
+        # feat_static_cat: torch.Tensor,
+        # feat_static_real: torch.Tensor,
+        # past_time_feat: torch.Tensor,
         past_target: torch.Tensor,
         past_observed_values: torch.Tensor,
-        future_time_feat: torch.Tensor,
+        # future_time_feat: torch.Tensor,
         num_parallel_samples: Optional[int] = None,
     ) -> torch.Tensor:
         """
@@ -501,12 +513,12 @@ class PerceiverARModel(nn.Module):
             num_parallel_samples = self.num_parallel_samples
 
         params, scale, static_feat, prefix = self.lagged_perciever(
-            feat_static_cat,
-            feat_static_real,
-            past_time_feat,
+            # feat_static_cat,
+            # feat_static_real,
+            # past_time_feat,
             past_target,
             past_observed_values,
-            future_time_feat[:, :1],
+            # future_time_feat[:, :1],
         )
 
         repeated_scale = scale.repeat_interleave(repeats=num_parallel_samples, dim=0)
@@ -517,9 +529,9 @@ class PerceiverARModel(nn.Module):
             past_target.repeat_interleave(repeats=num_parallel_samples, dim=0)
             / repeated_scale
         )
-        repeated_time_feat = future_time_feat.repeat_interleave(
-            repeats=num_parallel_samples, dim=0
-        )
+        # repeated_time_feat = future_time_feat.repeat_interleave(
+        #     repeats=num_parallel_samples, dim=0
+        # )
         repeated_prefix = prefix.repeat_interleave(repeats=num_parallel_samples, dim=0)
 
         repeated_params = [
@@ -534,10 +546,10 @@ class PerceiverARModel(nn.Module):
         # greedy sampling
         for k in range(1, self.prediction_length):
             scaled_next_sample = next_sample / repeated_scale
-            next_features = torch.cat(
-                (repeated_static_feat, repeated_time_feat[:, k : k + 1]),
-                dim=-1,
-            )
+            # next_features = torch.cat(
+            #     (repeated_static_feat, repeated_time_feat[:, k : k + 1]),
+            #     dim=-1,
+            # )
             next_lags = lagged_sequence_values(
                 self.lags_seq,
                 repeated_past_target,
@@ -545,7 +557,7 @@ class PerceiverARModel(nn.Module):
                 dim=-1
             )
 
-            next_x = torch.cat((next_lags, next_features), dim=-1)
+            next_x = torch.cat((next_lags, repeated_static_feat), dim=-1)
 
             x = next_x
             for cross_attn, ff in self.perceive_layers:

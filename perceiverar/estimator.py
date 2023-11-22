@@ -14,6 +14,7 @@ from gluonts.torch.modules.loss import DistributionLoss, NegativeLogLikelihood
 from gluonts.transform import (
     AddAgeFeature,
     AddObservedValuesIndicator,
+    DummyValueImputation,
     AddTimeFeatures,
     AsNumpyArray,
     Chain,
@@ -31,15 +32,15 @@ from gluonts.transform.sampler import InstanceSampler
 from module import PerceiverARModel
 from lightning_module import PerceiverARLightningModule
 
-PREDICTION_INPUT_NAMES = [
-    "feat_static_cat",
-    "feat_static_real",
-    "past_time_feat",
-    "past_target",
-    "past_observed_values",
-    "future_time_feat",
-]
-
+# PREDICTION_INPUT_NAMES = [
+#     "feat_static_cat",
+#     "feat_static_real",
+#     "past_time_feat",
+#     "past_target",
+#     "past_observed_values",
+#     "future_time_feat",
+# ]
+PREDICTION_INPUT_NAMES = ["past_target", "past_observed_values"]
 TRAINING_INPUT_NAMES = PREDICTION_INPUT_NAMES + [
     "future_target",
     "future_observed_values",
@@ -116,7 +117,7 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
     @validated()
     def __init__(
         self,
-        freq: str,
+        # freq: str,
         prediction_length: int,
         depth: int,
         context_length: Optional[int] = None,
@@ -128,22 +129,27 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
         cross_attn_dropout: float = 0.1,
         perceive_max_heads_process: int = 2,
         ff_mult: int = 1,
-        num_feat_dynamic_real: int = 0,
-        num_feat_static_cat: int = 0,
-        num_feat_static_real: int = 0,
-        cardinality: Optional[List[int]] = None,
-        embedding_dimension: Optional[List[int]] = None,
+        # num_feat_dynamic_real: int = 0,
+        # num_feat_static_cat: int = 0,
+        # num_feat_static_real: int = 0,
+        # cardinality: Optional[List[int]] = None,
+        # embedding_dimension: Optional[List[int]] = None,
         distr_output: DistributionOutput = StudentTOutput(),
         loss: DistributionLoss = NegativeLogLikelihood(),
         scaling: bool = True,
         lags_seq: Optional[List[int]] = None,
-        time_features: Optional[List[TimeFeature]] = None,
+        # time_features: Optional[List[TimeFeature]] = None,
         num_parallel_samples: int = 100,
         batch_size: int = 32,
         num_batches_per_epoch: int = 50,
+        weight_decay: float = 1e-8,
+        lr: float = 1e-3,
+        aug_prob: float = 0.1,
+        aug_rate: float = 0.1,
         trainer_kwargs: Optional[Dict[str, Any]] = None,
         train_sampler: Optional[InstanceSampler] = None,
         validation_sampler: Optional[InstanceSampler] = None,
+        ckpt_path: Optional[str] = None,
     ) -> None:
         default_trainer_kwargs = {
             "max_epochs": 100,
@@ -154,7 +160,7 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
         super().__init__(trainer_kwargs=default_trainer_kwargs)
 
         self.input_size = input_size
-        self.freq = freq
+        # self.freq = freq
         self.context_length = (
             context_length if context_length is not None else prediction_length
         )
@@ -169,20 +175,24 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
         self.perceive_max_heads_process = perceive_max_heads_process
         self.ff_mult = ff_mult
         self.cross_attn_dropout = cross_attn_dropout
-        self.num_feat_dynamic_real = num_feat_dynamic_real
-        self.num_feat_static_cat = num_feat_static_cat
-        self.num_feat_static_real = num_feat_static_real
-        self.cardinality = (
-            cardinality if cardinality and num_feat_static_cat > 0 else [1]
-        )
-        self.embedding_dimension = embedding_dimension
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.aug_prob = aug_prob
+        self.aug_rate = aug_rate
+        # self.num_feat_dynamic_real = num_feat_dynamic_real
+        # self.num_feat_static_cat = num_feat_static_cat
+        # self.num_feat_static_real = num_feat_static_real
+        # self.cardinality = (
+        #     cardinality if cardinality and num_feat_static_cat > 0 else [1]
+        # )
+        # self.embedding_dimension = embedding_dimension
         self.scaling = scaling
-        self.lags_seq = lags_seq
-        self.time_features = (
-            time_features
-            if time_features is not None
-            else time_features_from_frequency_str(self.freq)
-        )
+        # self.lags_seq = lags_seq
+        # self.time_features = (
+        #     time_features
+        #     if time_features is not None
+        #     else time_features_from_frequency_str(self.freq)
+        # )
 
         self.num_parallel_samples = num_parallel_samples
         self.batch_size = batch_size
@@ -194,69 +204,81 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
         self.validation_sampler = validation_sampler or ValidationSplitSampler(
             min_future=prediction_length
         )
+        self.ckpt_path = ckpt_path
 
     def create_transformation(self) -> Transformation:
-        remove_field_names = []
-        if self.num_feat_static_real == 0:
-            remove_field_names.append(FieldName.FEAT_STATIC_REAL)
-        if self.num_feat_dynamic_real == 0:
-            remove_field_names.append(FieldName.FEAT_DYNAMIC_REAL)
-
         return Chain(
-            [RemoveFields(field_names=remove_field_names)]
-            + (
-                [SetField(output_field=FieldName.FEAT_STATIC_CAT, value=[0])]
-                if not self.num_feat_static_cat > 0
-                else []
-            )
-            + (
-                [SetField(output_field=FieldName.FEAT_STATIC_REAL, value=[0.0])]
-                if not self.num_feat_static_real > 0
-                else []
-            )
-            + [
-                AsNumpyArray(
-                    field=FieldName.FEAT_STATIC_CAT,
-                    expected_ndim=1,
-                    dtype=int,
-                ),
-                AsNumpyArray(
-                    field=FieldName.FEAT_STATIC_REAL,
-                    expected_ndim=1,
-                ),
-                AsNumpyArray(
-                    field=FieldName.TARGET,
-                    # in the following line, we add 1 for the time dimension
-                    expected_ndim=1 + len(self.distr_output.event_shape),
-                ),
+            [
                 AddObservedValuesIndicator(
                     target_field=FieldName.TARGET,
                     output_field=FieldName.OBSERVED_VALUES,
-                ),
-                AddTimeFeatures(
-                    start_field=FieldName.START,
-                    target_field=FieldName.TARGET,
-                    output_field=FieldName.FEAT_TIME,
-                    time_features=self.time_features,
-                    pred_length=self.prediction_length,
-                ),
-                AddAgeFeature(
-                    target_field=FieldName.TARGET,
-                    output_field=FieldName.FEAT_AGE,
-                    pred_length=self.prediction_length,
-                    log_scale=True,
-                ),
-                VstackFeatures(
-                    output_field=FieldName.FEAT_TIME,
-                    input_fields=[FieldName.FEAT_TIME, FieldName.FEAT_AGE]
-                    + (
-                        [FieldName.FEAT_DYNAMIC_REAL]
-                        if self.num_feat_dynamic_real > 0
-                        else []
-                    ),
+                    imputation_method=DummyValueImputation(0.0),
                 ),
             ]
         )
+
+    # def create_transformation(self) -> Transformation:
+    #     remove_field_names = []
+    #     if self.num_feat_static_real == 0:
+    #         remove_field_names.append(FieldName.FEAT_STATIC_REAL)
+    #     if self.num_feat_dynamic_real == 0:
+    #         remove_field_names.append(FieldName.FEAT_DYNAMIC_REAL)
+
+    #     return Chain(
+    #         [RemoveFields(field_names=remove_field_names)]
+    #         + (
+    #             [SetField(output_field=FieldName.FEAT_STATIC_CAT, value=[0])]
+    #             if not self.num_feat_static_cat > 0
+    #             else []
+    #         )
+    #         + (
+    #             [SetField(output_field=FieldName.FEAT_STATIC_REAL, value=[0.0])]
+    #             if not self.num_feat_static_real > 0
+    #             else []
+    #         )
+    #         + [
+    #             AsNumpyArray(
+    #                 field=FieldName.FEAT_STATIC_CAT,
+    #                 expected_ndim=1,
+    #                 dtype=int,
+    #             ),
+    #             AsNumpyArray(
+    #                 field=FieldName.FEAT_STATIC_REAL,
+    #                 expected_ndim=1,
+    #             ),
+    #             AsNumpyArray(
+    #                 field=FieldName.TARGET,
+    #                 # in the following line, we add 1 for the time dimension
+    #                 expected_ndim=1 + len(self.distr_output.event_shape),
+    #             ),
+    #             AddObservedValuesIndicator(
+    #                 target_field=FieldName.TARGET,
+    #                 output_field=FieldName.OBSERVED_VALUES,
+    #             ),
+    #             AddTimeFeatures(
+    #                 start_field=FieldName.START,
+    #                 target_field=FieldName.TARGET,
+    #                 output_field=FieldName.FEAT_TIME,
+    #                 time_features=self.time_features,
+    #                 pred_length=self.prediction_length,
+    #             ),
+    #             AddAgeFeature(
+    #                 target_field=FieldName.TARGET,
+    #                 output_field=FieldName.FEAT_AGE,
+    #                 pred_length=self.prediction_length,
+    #                 log_scale=True,
+    #             ),
+    #             VstackFeatures(
+    #                 output_field=FieldName.FEAT_TIME,
+    #                 input_fields=[FieldName.FEAT_TIME, FieldName.FEAT_AGE]
+    #                 + (
+    #                     [FieldName.FEAT_DYNAMIC_REAL]
+    #                     if self.num_feat_dynamic_real > 0
+    #                     else []
+    #                 ),
+    #             ),
+    #         ]
+    #     )
 
     def _create_instance_splitter(self, module: PerceiverARLightningModule, mode: str):
         assert mode in ["training", "validation", "test"]
@@ -276,7 +298,7 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
             past_length=module.model._past_length,
             future_length=self.prediction_length,
             time_series_fields=[
-                FieldName.FEAT_TIME,
+                # FieldName.FEAT_TIME,
                 FieldName.OBSERVED_VALUES,
             ],
             dummy_value=self.distr_output.value_in_support,
@@ -319,33 +341,55 @@ class PerceiverAREstimator(PyTorchLightningEstimator):
         )
 
     def create_lightning_module(self) -> PerceiverARLightningModule:
-        model = PerceiverARModel(
-            input_size=self.input_size,
-            freq=self.freq,
-            depth=self.depth,
-            context_length=self.context_length,
-            prediction_length=self.prediction_length,
-            num_feat_dynamic_real=(
-                1 + self.num_feat_dynamic_real + len(self.time_features)
-            ),
-            num_feat_static_real=max(1, self.num_feat_static_real),
-            num_feat_static_cat=max(1, self.num_feat_static_cat),
-            cardinality=self.cardinality,
-            embedding_dimension=self.embedding_dimension,
-            perceive_depth=self.perceive_depth,
-            heads=self.heads,
-            perceive_max_heads_process=self.perceive_max_heads_process,
-            ff_mult=self.ff_mult,
-            cross_attn_dropout=self.cross_attn_dropout,
-            hidden_size=self.hidden_size,
-            distr_output=self.distr_output,
-            dropout_rate=self.dropout_rate,
-            lags_seq=self.lags_seq,
-            scaling=self.scaling,
-            num_parallel_samples=self.num_parallel_samples,
-        )
+        model_kwargs = {
+            "input_size":self.input_size,
+            # freq=self.freq,
+            "depth":self.depth,
+            "context_length":self.context_length,
+            "prediction_length":self.prediction_length,
+            # num_feat_dynamic_real=(
+            #     1 + self.num_feat_dynamic_real + len(self.time_features)
+            # ),
+            # num_feat_static_real=max(1, self.num_feat_static_real),
+            # num_feat_static_cat=max(1, self.num_feat_static_cat),
+            # cardinality=self.cardinality,
+            # embedding_dimension=self.embedding_dimension,
+            "perceive_depth":self.perceive_depth,
+            "heads":self.heads,
+            "perceive_max_heads_process":self.perceive_max_heads_process,
+            "ff_mult":self.ff_mult,
+            "cross_attn_dropout":self.cross_attn_dropout,
+            "hidden_size":self.hidden_size,
+            "distr_output":self.distr_output,
+            "dropout_rate":self.dropout_rate,
+            # lags_seq=self.lags_seq,
+            "scaling":self.scaling,
+            "num_parallel_samples":self.num_parallel_samples,
+        }
 
-        return PerceiverARLightningModule(model=model, loss=self.loss)
+        # return PerceiverARLightningModule(model=model, loss=self.loss)
+        if self.ckpt_path is not None:
+            return PerceiverARLightningModule.load_from_checkpoint(
+                self.ckpt_path,
+                model_kwargs=model_kwargs,
+                loss=self.loss,
+                lr=self.lr,
+                weight_decay=self.weight_decay,
+                aug_prob=self.aug_prob,
+                aug_rate=self.aug_rate,
+            )
+        else:
+            return PerceiverARLightningModule(
+                model_kwargs=model_kwargs,
+                loss=self.loss,
+                lr=self.lr,
+                weight_decay=self.weight_decay,
+                # context_length=self.context_length,
+                # prediction_length=self.prediction_length,
+                aug_prob=self.aug_prob,
+                aug_rate=self.aug_rate,
+            )
+
 
     def create_predictor(
         self,
