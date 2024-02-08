@@ -10,5 +10,7 @@ pip3 install -U -r requirements.txt
 
 ## Lag-Llama: Towards Foundation Models for Time Series Forecasting 
 
-Please see https://github.com/time-series-foundation-models/lag-llama for Lag-Llama.
+If you're here from the arXiv paper, please note that the arXiv paper is not the latest version and that arXiv is still being updated with the latest version.
+
+Please see https://github.com/time-series-foundation-models/lag-llama for the latest version of Lag-Llama.
 
