@@ -58,8 +58,64 @@ class LagLlamaLightningModule(LightningModule):
 
         self.model = LagLlamaModel(**self.hparams.model_kwargs)
 
-    # ancestral sampling next-step prediction
+    # # ancestral sampling via next-step prediction using only the first distribution
+    # def forward(self, *args, **kwargs):
+    #     past_target = kwargs["past_target"]
+    #     past_observed_values = kwargs["past_observed_values"]
+    #     past_time_feat = kwargs["past_time_feat"]
+    #     future_time_feat = kwargs["future_time_feat"]
+
+    #     repeated_past_target = past_target.repeat_interleave(
+    #         self.model.num_parallel_samples, 0
+    #     )
+    #     repeated_past_observed_values = past_observed_values.repeat_interleave(
+    #         self.model.num_parallel_samples, 0
+    #     )
+    #     repeated_past_time_feat = past_time_feat.repeat_interleave(
+    #         self.model.num_parallel_samples, 0
+    #     )
+    #     repeated_future_time_feat = future_time_feat.repeat_interleave(
+    #         self.model.num_parallel_samples, 0
+    #     )
+
+    #     repeated_future_time_feat = repeated_future_time_feat[
+    #         :, : self.prediction_length, :
+    #     ]
+
+    #     future_samples = []
+    #     for t in range(self.prediction_length):
+    #         params, loc, scale = self.model(
+    #             *args,
+    #             past_time_feat=repeated_past_time_feat,
+    #             future_time_feat=repeated_future_time_feat[..., : t + 1, :],
+    #             past_target=repeated_past_target,
+    #             past_observed_values=repeated_past_observed_values,
+    #             is_test=False,
+    #         )
+    #         # use only the first distribution for the ne
+    #         sliced_params = [p[:, -1:] for p in params[0]]
+    #         distr = self.model.distr_output.distribution(sliced_params, loc, scale)
+    #         sample = distr.sample()
+    #         future_samples.append(sample)
+
+    #         repeated_past_target = torch.cat((repeated_past_target, sample), dim=1)
+    #         repeated_past_observed_values = torch.cat(
+    #             (repeated_past_observed_values, torch.ones_like(sample)), dim=1
+    #         )
+
+    #     self.model.reset_cache()
+
+    #     concat_future_samples = torch.cat(future_samples, dim=-1)
+    #     return concat_future_samples.reshape(
+    #         (-1, self.model.num_parallel_samples, self.prediction_length)
+    #         + self.model.distr_output.event_shape,
+    #     )
+
     def forward(self, *args, **kwargs):
+        """
+        Self-speculative decoding for continuous distributions where model predicts 
+        distribution parameters for multiple future steps.
+        """
         past_target = kwargs["past_target"]
         past_observed_values = kwargs["past_observed_values"]
         past_time_feat = kwargs["past_time_feat"]
@@ -76,181 +132,104 @@ class LagLlamaLightningModule(LightningModule):
         )
         repeated_future_time_feat = future_time_feat.repeat_interleave(
             self.model.num_parallel_samples, 0
-        )
-
-        repeated_future_time_feat = repeated_future_time_feat[:, : self.prediction_length, :]
+        )[:, :self.prediction_length]
 
         future_samples = []
-        for t in range(self.prediction_length):
+        cur_pos = 0
+
+        while cur_pos < self.prediction_length:
+            remaining_len = self.prediction_length - cur_pos
+            
+            # Get multi-step predictions from the model
             params, loc, scale = self.model(
-                *args,
                 past_time_feat=repeated_past_time_feat,
-                future_time_feat=repeated_future_time_feat[..., : t + 1, :],
+                future_time_feat=repeated_future_time_feat[..., :cur_pos + 1, :],
                 past_target=repeated_past_target,
                 past_observed_values=repeated_past_observed_values,
-                is_test=False,
+                is_test=False
             )
-            sliced_params = [p[:, -1:] for p in params[0]]
-            distr = self.model.distr_output.distribution(sliced_params, loc, scale)
-            sample = distr.sample()
-            future_samples.append(sample)
-
-            repeated_past_target = torch.cat((repeated_past_target, sample), dim=1)
-            repeated_past_observed_values = torch.cat(
-                (repeated_past_observed_values, torch.ones_like(sample)), dim=1
-            )
-
-        self.model.reset_cache()
-
-        concat_future_samples = torch.cat(future_samples, dim=-1)
-        return concat_future_samples.reshape(
-            (-1, self.model.num_parallel_samples, self.prediction_length)
-            + self.model.distr_output.event_shape,
-        )
-
-    # Self-speculative decoding
-    def forward(self, *args, **kwargs):
-        past_target = kwargs["past_target"]
-        past_observed_values = kwargs["past_observed_values"]
-        past_time_feat = kwargs["past_time_feat"]
-        future_time_feat = kwargs["future_time_feat"]
-
-        # Repeat inputs for parallel sampling
-        repeated_past_target = past_target.repeat_interleave(self.model.num_parallel_samples, 0)
-        repeated_past_observed_values = past_observed_values.repeat_interleave(self.model.num_parallel_samples, 0)
-        repeated_past_time_feat = past_time_feat.repeat_interleave(self.model.num_parallel_samples, 0)
-        repeated_future_time_feat = future_time_feat.repeat_interleave(self.model.num_parallel_samples, 0)
-        repeated_future_time_feat = repeated_future_time_feat[:, :self.prediction_length, :]
-
-        future_samples = []
-        t = 0
-        while t < self.prediction_length:
-            # Determine number of steps to speculate (don't exceed prediction_length)
-            steps_remaining = self.prediction_length - t
-            n_spec_steps = min(self.n_predictions, steps_remaining)
             
-            # Generate speculative predictions
-            spec_samples = []
-            for _ in range(n_spec_steps):
-                params, loc, scale = self.model(
-                    *args,
-                    past_time_feat=repeated_past_time_feat,
-                    future_time_feat=repeated_future_time_feat[..., :t + len(spec_samples) + 1, :],
-                    past_target=repeated_past_target,
-                    past_observed_values=repeated_past_observed_values,
-                    is_test=False,
-                )
-                sliced_params = [p[:, -1:] for p in params[0]]
+            # Sample proposed values from each distribution
+            proposed_samples = []
+            for i in range(min(self.n_predictions -1, remaining_len)):
+                # Get distribution for this step using parameters from the i-th prediction head
+                sliced_params = [p[:, -1:] for p in params[i]]
                 distr = self.model.distr_output.distribution(sliced_params, loc, scale)
                 sample = distr.sample()
-                spec_samples.append(sample)
+                proposed_samples.append(sample)
+            proposed_samples = torch.cat(proposed_samples, dim=1)
+            
+            # verify the proposed samples by passing them to the model in parallel:
+            proposed_params, proposed_loc, proposed_scale = self.model(
+                past_time_feat=repeated_past_time_feat,
+                future_time_feat=repeated_future_time_feat[..., :cur_pos + self.n_predictions - 1, :],
+                past_target=repeated_past_target,
+                past_observed_values=repeated_past_observed_values,
+                future_target=proposed_samples,
+            )
 
-            # Verify speculative predictions
-            verified_samples = []
-            for i, sample in enumerate(spec_samples):
-                # For first step, always accept the prediction
-                if i == 0:
-                    verified_samples.append(sample)
-                    continue
-                    
-                # Verify each subsequent prediction
-                temp_target = torch.cat([repeated_past_target] + verified_samples + [sample], dim=1)
-                params, loc, scale = self.model(
-                    *args,
+            # get the last "self.n_predictions - 1" parameters from  proposed_params[0]
+            proposed_sliced_params = [p[:, -self.n_predictions + 1:] for p in proposed_params[0]]
+            proposed_distr = self.model.distr_output.distribution(proposed_sliced_params, proposed_loc, proposed_scale)
+            proposed_nll = - proposed_distr.log_prob(proposed_samples)
+
+            import pdb; pdb.set_trace() 
+            # TODO The rest of the code is not correct yet
+
+            # Verify proposals using base model
+            accepted_samples = []
+            for i, proposal in enumerate(proposed_samples):
+                # Add proposal to sequence temporarily
+                test_target = torch.cat([repeated_past_target, 
+                                    torch.cat(accepted_samples + [proposal], dim=1)], dim=1)
+                
+                # Get base model prediction for this position
+                base_params, base_loc, base_scale = self.model(
                     past_time_feat=repeated_past_time_feat,
-                    future_time_feat=repeated_future_time_feat[..., :t + i + 1, :],
-                    past_target=temp_target,
+                    future_time_feat=repeated_future_time_feat[..., :cur_pos + i + 1, :],
+                    past_target=test_target,
                     past_observed_values=repeated_past_observed_values,
-                    is_test=False,
+                    is_test=False
                 )
                 
-                sliced_params = [p[:, -1:] for p in params[0]]
-                distr = self.model.distr_output.distribution(sliced_params, loc, scale)
-                verified_sample = distr.sample()
+                # Get distribution from base model (first head/distribution)
+                base_distr = self.model.distr_output.distribution(base_params[0], base_loc, base_scale)
                 
-                # If verification differs significantly, stop speculation
-                if torch.abs(verified_sample - sample).mean() > 0.1:  # threshold can be tuned
+                # Calculate log probability of proposal under base distribution
+                log_prob = base_distr.log_prob(proposal)
+                
+                # Accept if log probability is above threshold
+                if torch.all(log_prob > -5.0):  # Threshold can be tuned
+                    accepted_samples.append(proposal)
+                else:
                     break
-                verified_samples.append(verified_sample)
+                    
+            if len(accepted_samples) == 0:
+                # If no proposals accepted, sample one step from base distribution
+                distr = self.model.distr_output.distribution(params[0], loc, scale)
+                sample = distr.sample()
+                future_samples.append(sample)
+                repeated_past_target = torch.cat([repeated_past_target, sample], dim=1)
+                cur_pos += 1
+            else:
+                # Add all accepted proposals
+                future_samples.extend(accepted_samples)
+                repeated_past_target = torch.cat([repeated_past_target] + accepted_samples, dim=1)
+                cur_pos += len(accepted_samples)
 
-            # Update state with verified predictions
-            future_samples.extend(verified_samples)
-            repeated_past_target = torch.cat([repeated_past_target] + verified_samples, dim=1)
             repeated_past_observed_values = torch.cat(
-                [repeated_past_observed_values] + [torch.ones_like(s) for s in verified_samples], 
+                (repeated_past_observed_values, torch.ones_like(repeated_past_target[:, -len(accepted_samples) or -1:])), 
                 dim=1
             )
-            
-            t += len(verified_samples)
-            
+
         self.model.reset_cache()
 
-        concat_future_samples = torch.cat(future_samples, dim=-1)
+        # Concatenate and reshape samples
+        concat_future_samples = torch.cat(future_samples, dim=1)
         return concat_future_samples.reshape(
-            (-1, self.model.num_parallel_samples, self.prediction_length)
-            + self.model.distr_output.event_shape,
+            (-1, self.model.num_parallel_samples, self.prediction_length) 
+            + self.model.distr_output.event_shape
         )
-
-    # # beam-search? prediction
-    # def forward(self, *args, **kwargs):
-    #     past_time_feat = kwargs["past_time_feat"]
-    #     past_target = kwargs["past_target"]
-    #     past_observed_values = kwargs["past_observed_values"]
-    #     future_time_feat = kwargs["future_time_feat"]
-
-    #     future_samples = []
-    #     for t in range(self.prediction_length):
-    #         params, loc, scale = self.model.forward(
-    #             *args,
-    #             past_target=past_target,
-    #             past_observed_values=past_observed_values,
-    #             past_time_feat=past_time_feat,
-    #         )
-    #         sliced_params = [p[:, -1:] for p in params]
-    #         distr = self.model.distr_output.distribution(sliced_params, loc, scale)
-    #         sample = distr.sample((self.model.num_parallel_samples,))
-    #         future_samples.append(sample.transpose(1, 0))
-
-    #         past_target = torch.cat((past_target, distr.mean), dim=1)
-    #         past_observed_values = torch.cat(
-    #             (past_observed_values, torch.ones_like(distr.mean)), dim=1
-    #         )
-    #         past_time_feat = torch.cat(
-    #             (past_time_feat, future_time_feat[:, t : t + 1, ...]),
-    #             dim=1,
-    #         )
-
-    #     concat_future_samples = torch.cat(future_samples, dim=-1)
-    #     return concat_future_samples.reshape(
-    #         (-1, self.model.num_parallel_samples, self.prediction_length)
-    #         + self.model.distr_output.event_shape,
-    #     )
-
-    # # mean prediction and then sample
-    # def forward(self, *args, **kwargs):
-    #     past_target = kwargs["past_target"]
-    #     past_observed_values = kwargs["past_observed_values"]
-
-    #     for t in range(self.prediction_length):
-    #         params, loc, scale = self.model(
-    #             *args,
-    #             past_target=past_target,
-    #             past_observed_values=past_observed_values,
-    #         )
-    #         sliced_params = [p[:, -1:] for p in params]
-    #         distr = self.model.distr_output.distribution(sliced_params, loc, scale)
-    #         past_target = torch.cat((past_target, distr.mean), dim=1)
-    #         past_observed_values = torch.cat(
-    #             (past_observed_values, torch.ones_like(distr.mean)), dim=1
-    #         )
-
-    #     sliced_params = [p[:, -self.prediction_length :] for p in params]
-    #     distr = self.model.distr_output.distribution(sliced_params, loc, scale)
-    #     sample = distr.sample((self.model.num_parallel_samples,))
-    #     return sample.transpose(1, 0).reshape(
-    #         (-1, self.model.num_parallel_samples, self.prediction_length)
-    #         + self.model.distr_output.event_shape,
-    #     )
 
     # train matryoshka loss
     def _compute_loss(self, batch):
@@ -277,36 +256,52 @@ class LagLlamaLightningModule(LightningModule):
             *future_observed_values.shape[extra_dims + 1 :],
         )
 
-
         distr_args, loc, scale = self.model(
             past_target=past_target,
             past_observed_values=past_observed_values,
             past_time_feat=past_time_feat,
             future_time_feat=future_time_feat[:, : self.prediction_length, :],
-            future_target=future_target_reshaped[:, :self.prediction_length],
+            future_target=future_target_reshaped[:, : self.prediction_length],
         )
-        
+
         losses = []
+        # for all the multi-step predictions calculate the loss
         for i, distr_arg in enumerate(distr_args):
-            context_target = take_last(past_target, dim=-1, num=self.context_length - (1 + i))
+            context_target = take_last(
+                past_target, dim=-1, num=self.context_length - (1 + i)
+            )
             target = torch.cat(
-                (context_target, future_target_reshaped[:, :self.prediction_length + i]),
+                (
+                    context_target,
+                    future_target_reshaped[:, : self.prediction_length + i],
+                ),
                 dim=1,
             )
             context_observed = take_last(
                 past_observed_values, dim=-1, num=self.context_length - (1 + i)
             )
-            observed_values = torch.cat((context_observed, future_observed_reshaped[:, :self.prediction_length + i]), dim=1)
-            
-            #distr = self.model.distr_output.distribution(distr_arg, loc, scale)
-            
+            observed_values = torch.cat(
+                (
+                    context_observed,
+                    future_observed_reshaped[:, : self.prediction_length + i],
+                ),
+                dim=1,
+            )
+
+            # distr = self.model.distr_output.distribution(distr_arg, loc, scale)
+
             losses.append(
-                (self.model.distr_output.loss(target, distr_arg, loc=loc, scale=scale) * observed_values
-            ).sum() / observed_values.sum().clamp_min(1.0))
-        
+                (
+                    self.model.distr_output.loss(
+                        target, distr_arg, loc=loc, scale=scale
+                    )
+                    * observed_values
+                ).sum()
+                / observed_values.sum().clamp_min(1.0)
+            )
 
+        # final loss is the mean of all the multi-step losses
         return torch.stack(losses).mean()
-
 
     def training_step(self, batch, batch_idx: int):  # type: ignore
         """
